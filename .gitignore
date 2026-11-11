@@ -144,6 +144,7 @@ cython_debug/
 password.json
 class_data.txt
 student_data.txt
+group_data.txt
 weekly_score_archive.txt
 overrides.json
 disabled.json
@@ -154,10 +155,12 @@ disabled_ranges.json
 backend.log
 overlay_stdout.log
 overlay_stderr.log
+logs/
 
 # 旧版单文件原型（已由 student_score.py 替代）
 740.6.py
 
 # 打包 / 安装产物
 installer/
+patch_*.zip
 

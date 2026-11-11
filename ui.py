@@ -30,6 +30,7 @@ FG_TEXT      = "#e8e8f0"
 FG_DIM       = "#9090a0"
 FG_ACCENT    = "#7ab8ff"
 FG_WARN      = "#ffcc66"
+FG_PREBELL   = "#ffe0b3"   # 预备铃提示文字（配 BG_PREBELL 深橙底）
 FG_DANGER    = "#ff6b6b"
 FG_OK        = "#66cc88"   # 成功/已自定义密码用
 FG_SUBJECT   = "#66cc88"   # 课程标题/上课中用（绿色）
@@ -464,9 +465,13 @@ class ScheduleUI:
                        activebackground=BG_CELL_ALT, activeforeground=FG_TEXT,
                        bd=0, font=("Microsoft YaHei UI", 10))
         menu.add_command(label="👥  学生积分（需密钥）", command=self._open_student_score)
+        menu.add_command(label="👁  学生积分（只读，无需密钥）",
+                         command=self._open_student_score_readonly)
         menu.add_separator()
         menu.add_command(label="⏱  测试倒计时窗口", command=self._toggle_overlay_manual)
         menu.add_command(label="⚙  调试工具", command=self._open_debug_tool)
+        menu.add_separator()
+        menu.add_command(label="ℹ  版本信息", command=self._show_version_info)
 
         btn = self._more_button
         try:
@@ -478,13 +483,29 @@ class ScheduleUI:
         """学生积分（嵌入模块）：进入需密钥，窗口与主界面同一深色主题。"""
         if not AskPasswordDialog(self.root, "进入学生积分需要密钥").result:
             return
+        self._show_student_score(readonly=False)
+
+    def _open_student_score_readonly(self):
+        """只读模式：无需密钥，仅可查看小组积分与记录。"""
+        self._show_student_score(readonly=True)
+
+    def _show_student_score(self, readonly=False):
         win = getattr(self, "_score_window", None)
         if win is not None and win.winfo_exists():
             win.lift()
             win.focus_force()
             return
         from student_score import StudentScoreWindow
-        self._score_window = StudentScoreWindow(self.root).win
+        self._score_window = StudentScoreWindow(self.root, readonly=readonly).win
+
+    def _show_version_info(self):
+        """显示版本号、整包哈希与代码校验结果，用于判断本机安装版本。"""
+        try:
+            import version_manager
+            text = version_manager.describe()
+        except Exception as exc:
+            text = f"无法读取版本信息：{exc}"
+        messagebox.showinfo("版本信息", text, parent=self.root)
 
     def _refresh_autostart_status(self):
         registered = autostart.is_registered()

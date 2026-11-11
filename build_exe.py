@@ -1,10 +1,23 @@
+"""PyInstaller 打包：生成解耦的多文件运行目录。
+
+产物结构（dist/）：
+    ClassSchedule.exe            启动器（加载 app/main.py，无控制台）
+    ClassSchedule_Backend.exe    启动器（加载 app/backend_service.py，无控制台）
+    ClassSchedule_Overlay.exe    启动器（加载 app/overlay_window.py，无控制台）
+    app/*.py                     业务代码，补丁可按文件替换
+    version.json                 版本号 + 每个文件 sha256 + 整包哈希
+
+业务代码不打进 exe，因此修改代码后只需替换 app/ 下对应文件即可。
+三个 exe 均为窗口模式（--noconsole），启动器把 print 重定向到 logs/*.log。
 """
-PyInstaller 打包脚本：生成 3 个独立 EXE
-  ClassSchedule.exe          — main.py（设置面板 + 课程表）
-  ClassSchedule_Backend.exe  — backend_service.py（后台常驻，无控制台）
-  ClassSchedule_Overlay.exe  — overlay_window.py（倒计时窗口）
-"""
-import subprocess, sys, os, shutil
+import ast
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent.resolve()
@@ -13,64 +26,161 @@ BUILD = ROOT / "build"
 
 CLEAN = "--clean" in sys.argv or "-c" in sys.argv
 
-if CLEAN:
-    for d in [DIST, BUILD]:
-        if d.exists():
-            shutil.rmtree(d)
-    print("已清理旧产物")
+# 需要随包发布的业务代码（顺序无关）
+APP_FILES = [
+    "main.py",
+    "ui.py",
+    "backend.py",
+    "backend_service.py",
+    "overlay_window.py",
+    "schedule.py",
+    "auth.py",
+    "autostart.py",
+    "time_debug.py",
+    "student_score.py",
+    "version.py",
+    "version_manager.py",
+    "updater.py",
+]
 
+# (exe 名, 启动器, 是否隐藏控制台) —— 全部窗口模式，不弹黑色控制台
 SPECS = [
-    # (exe名, 入口脚本, 是否隐藏控制台)
-    ("ClassSchedule",         "main.py",           False),
-    ("ClassSchedule_Backend", "backend_service.py", True),
-    ("ClassSchedule_Overlay", "overlay_window.py",  False),
+    ("ClassSchedule", "launcher_main.py", True),
+    ("ClassSchedule_Backend", "launcher_backend.py", True),
+    ("ClassSchedule_Overlay", "launcher_overlay.py", True),
 ]
 
-shared_args = [
-    "--noconfirm",
-    f"--distpath={DIST}",
-    f"--workpath={BUILD}",
-    f"--specpath={ROOT}",
-    "--collect-submodules=tkinter",
-    "--hidden-import=student_score",
-]
+LAUNCHERS = [s[1] for s in SPECS]
 
-# 所有要一起打包的 .py 数据文件
-extra_datas = [
-    "auth.py", "schedule.py", "autostart.py", "backend.py",
-    "time_debug.py", "ui.py", "student_score.py",
-]
 
-for exe_name, entry, noconsole in SPECS:
-    print(f"\n{'='*60}")
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def bundle_hash(files: dict) -> str:
+    h = hashlib.sha256()
+    for name in sorted(files):
+        h.update(f"{name}\0{files[name]}\n".encode("utf-8"))
+    return h.hexdigest()
+
+
+def local_module_names() -> set:
+    return {Path(f).stem for f in APP_FILES + LAUNCHERS}
+
+
+def collect_hidden_imports() -> list:
+    """扫描业务代码的 import，补进 exe，避免启动时缺标准库/子模块。"""
+    local = local_module_names()
+    mods = set()
+    for name in APP_FILES:
+        tree = ast.parse((ROOT / name).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    mods.add(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                mods.add(node.module.split(".")[0])
+                if node.module == "tkinter":
+                    for alias in node.names:
+                        mods.add(f"tkinter.{alias.name}")
+    mods -= local
+    mods |= {
+        "tkinter", "tkinter.ttk", "tkinter.messagebox",
+        "tkinter.simpledialog", "tkinter.filedialog",
+    }
+    return sorted(mods)
+
+
+def build_exe(exe_name: str, entry: str, noconsole: bool, hidden: list):
+    print(f"\n{'=' * 60}")
     print(f"打包 {exe_name}  ←  {entry}")
-    print(f"{'='*60}")
-
-    cmd = [sys.executable, "-m", "PyInstaller",
-           f"--name={exe_name}",
-           "--onefile",
-           f"--paths={ROOT}",
-           *shared_args]
-
+    print(f"{'=' * 60}")
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        f"--name={exe_name}",
+        "--onefile",
+        f"--distpath={DIST}",
+        f"--workpath={BUILD}",
+        f"--specpath={BUILD}",
+        "--noconfirm",
+        "--collect-submodules=tkinter",
+    ]
     if noconsole:
         cmd.append("--noconsole")
-
-    # 把额外 .py 文件作为数据打进去，保证动态 import 能找到
-    for f in extra_datas:
-        cmd.append(f"--add-data={f}{os.pathsep}.")
-
-    # entry 脚本
+    for m in hidden:
+        cmd.append(f"--hidden-import={m}")
+    # 业务代码必须从 app/ 加载，禁止打进 exe
+    for m in sorted(local_module_names()):
+        cmd.append(f"--exclude-module={m}")
     cmd.append(str(ROOT / entry))
 
     print("  命令:", " ".join(cmd))
     r = subprocess.run(cmd, cwd=str(ROOT))
     if r.returncode != 0:
-        print(f"❌ {exe_name} 打包失败！")
+        print(f"[失败] {exe_name}")
         sys.exit(1)
-    print(f"✅ {exe_name} 打包完成")
+    print(f"[完成] {exe_name}")
 
-print(f"\n{'='*60}")
-print(f"全部完成！产物在 {DIST}")
-for f in sorted(DIST.glob("*.exe")):
-    mb = f.stat().st_size / 1024 / 1024
-    print(f"  {f.name:35s} {mb:7.1f} MB")
+
+def main():
+    if CLEAN:
+        for d in (DIST, BUILD):
+            if d.exists():
+                shutil.rmtree(d)
+        print("已清理旧产物")
+
+    DIST.mkdir(parents=True, exist_ok=True)
+    BUILD.mkdir(parents=True, exist_ok=True)
+    hidden = collect_hidden_imports()
+
+    for exe_name, entry, noconsole in SPECS:
+        build_exe(exe_name, entry, noconsole, hidden)
+
+    # 发布业务代码
+    app_dir = DIST / "app"
+    if app_dir.exists():
+        shutil.rmtree(app_dir)
+    app_dir.mkdir(parents=True)
+    for name in APP_FILES:
+        shutil.copy2(ROOT / name, app_dir / name)
+
+    sys.path.insert(0, str(ROOT))
+    from version import VERSION
+
+    files = {}
+    for name in APP_FILES:
+        p = app_dir / name
+        files[name] = {"sha256": sha256_file(p), "size": p.stat().st_size}
+
+    exe_hashes = {
+        p.name: sha256_file(p) for p in sorted(DIST.glob("*.exe"))
+    }
+    flat = {name: info["sha256"] for name, info in files.items()}
+
+    manifest = {
+        "version": VERSION,
+        "built_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "bundle_hash": bundle_hash(flat),
+        "files": files,
+        "exe": exe_hashes,
+    }
+    (DIST / "version.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    print(f"\n{'=' * 60}")
+    print(f"打包完成：{VERSION}")
+    print(f"产物目录：{DIST}")
+    print(f"代码文件：{len(files)} 个")
+    print(f"整包哈希：{manifest['bundle_hash']}")
+    for f in sorted(DIST.glob("*.exe")):
+        mb = f.stat().st_size / 1024 / 1024
+        print(f"  {f.name:30s} {mb:7.1f} MB")
+    print(f"  {'app/*.py':30s} {sum(i['size'] for i in files.values()) / 1024:7.1f} KB")
+
+
+if __name__ == "__main__":
+    main()

@@ -31,7 +31,42 @@ from backend import BackendService
 from ui import ScheduleUI, _apply_ttk_theme
 
 
+def _cli_report(text: str, error: bool = False):
+    """命令行结果反馈：开发模式打印到控制台，打包后（无控制台）弹窗。"""
+    print(text)
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        if error:
+            messagebox.showerror("课程表", text)
+        else:
+            messagebox.showinfo("课程表", text)
+    except Exception:
+        pass
+
+
+def _handle_cli() -> bool:
+    """命令行模式：查看版本/哈希、应用补丁，不启动界面。"""
+    args = sys.argv[1:]
+    if "--version" in args:
+        import version_manager
+        _cli_report(version_manager.describe())
+        return True
+    if "--apply-patch" in args:
+        idx = args.index("--apply-patch")
+        if idx + 1 >= len(args):
+            _cli_report("用法：ClassSchedule.exe --apply-patch <补丁.zip>", error=True)
+            return True
+        import updater
+        ok, msg = updater.apply_patch(args[idx + 1])
+        _cli_report(("✅ " if ok else "❌ ") + msg, error=not ok)
+        return True
+    return False
+
+
 def main():
+    if _handle_cli():
+        return
     # 1. 开机自启注册（若缺失或指向错误脚本则自动修正为 backend_service.py）
     just_registered, msg = autostart.ensure_registered()
     if just_registered:

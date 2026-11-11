@@ -3,7 +3,7 @@
 ; 生成 Setup.exe 安装程序
 ; ============================================================
 #define MyAppName "课程表"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "七年级10班"
 #define MyAppExeName "ClassSchedule.exe"
 #define MyBackendName "ClassSchedule_Backend.exe"
@@ -45,6 +45,9 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Source: "dist\{#MyAppExeName}";         DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyBackendName}";        DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyOverlayName}";        DestDir: "{app}"; Flags: ignoreversion
+; 业务代码与版本清单（补丁按 app/ 下的文件替换）
+Source: "dist\app\*.py";                DestDir: "{app}\app"; Flags: ignoreversion
+Source: "dist\version.json";            DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; 开始菜单 → 主程序
