@@ -136,3 +136,28 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# ============================================================
+# 课程表项目
+# ============================================================
+# 运行时数据（含密码哈希 / 学生信息，不入库）
+password.json
+class_data.txt
+student_data.txt
+weekly_score_archive.txt
+overrides.json
+disabled.json
+disabled_ranges.json
+.backend.pid
+.pwd_request.json
+.pwd_response.json
+backend.log
+overlay_stdout.log
+overlay_stderr.log
+
+# 旧版单文件原型（已由 student_score.py 替代）
+740.6.py
+
+# 打包 / 安装产物
+installer/
+
