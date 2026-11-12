@@ -6,7 +6,6 @@
   归档浅拷贝、批量导入无法多行输入、底部按钮绝对定位、初始列数失效、周次 W00
 """
 
-import copy
 import json
 import random
 import sys
@@ -16,9 +15,14 @@ from collections import defaultdict
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
+import charts
+import score_records as store
 from ui import (
     BG_MAIN, BG_PANEL, BG_CELL, BG_CELL_ALT, BG_IN_CLASS,
     FG_TEXT, FG_DIM, FG_ACCENT, FG_WARN, FG_DANGER, FG_OK,
+    center_window,
+    fit_geometry,
+    dpi_scale,
 )
 
 if getattr(sys, "frozen", False):
@@ -29,12 +33,16 @@ CLASS_FILE = APP_DIR / "class_data.txt"
 STUDENT_FILE = APP_DIR / "student_data.txt"
 GROUP_FILE = APP_DIR / "group_data.txt"
 WEEKLY_ARCHIVE = APP_DIR / "weekly_score_archive.txt"
+SETTINGS_FILE = APP_DIR / "settings.json"
+LOG_DIR = APP_DIR / "logs"
+OP_LOG = LOG_DIR / "score_operations.log"
 
 FONT = "Microsoft YaHei UI"
 CARD_BG = BG_CELL
 CARD_SELECT = "#2f5f8f"      # 选中：与强调色 FG_ACCENT 同系的深蓝
+CARD_FLASH = "#d4a017"       # 随机点名滚动/定格时的金色高亮
 CARD_W = 128                 # 卡片宽度 + 间距，用于计算列数
-LOW_SCORE_LIMIT = 60
+LOW_SCORE_LIMIT = 60         # 默认预警阈值，可在 settings.json 里覆盖
 
 
 def _load_json(path: Path, default):
@@ -52,8 +60,63 @@ def _save_json(path: Path, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def load_settings() -> dict:
+    """读取 settings.json；缺失时写入默认值，方便老师直接改阈值。"""
+    data = None
+    if SETTINGS_FILE.exists():
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            data = None
+    if not isinstance(data, dict):
+        data = {"low_score_limit": LOW_SCORE_LIMIT}
+        try:
+            _save_json(SETTINGS_FILE, data)
+        except OSError:
+            pass
+    data.setdefault("low_score_limit", LOW_SCORE_LIMIT)
+    return data
+
+
+def low_score_limit() -> int:
+    try:
+        return int(load_settings()["low_score_limit"])
+    except (TypeError, ValueError, KeyError):
+        return LOW_SCORE_LIMIT
+
+
+def custom_reasons() -> list:
+    """老师自己输入过的理由（保存在 settings.json，之后可直接选用）。"""
+    vals = load_settings().get("custom_reasons", [])
+    return [str(v) for v in vals] if isinstance(vals, list) else []
+
+
+def add_custom_reason(reason: str):
+    reason = reason.strip()
+    if not reason:
+        return
+    data = load_settings()
+    vals = data.get("custom_reasons", [])
+    if not isinstance(vals, list):
+        vals = []
+    if reason not in vals:
+        vals.append(reason)
+        data["custom_reasons"] = vals
+        try:
+            _save_json(SETTINGS_FILE, data)
+        except OSError:
+            pass
+
+
 # ===================== 分类奖惩理由 =====================
 reason_categories = {
+    # 放在第一位：打分窗口默认选中「常用」，常用理由直接置顶
+    "常用": [
+        "积极发言", "作业未交", "早读表扬", "帮助同学",
+        "认真听讲", "主动提问", "作业优秀", "课堂纪律好",
+        "迟到早退", "上课讲话", "作业抄袭", "值日敷衍",
+    ],
     "课堂表现": [
         "积极发言", "认真听讲", "勤于思考", "专注课堂", "主动提问",
         "思路清晰", "配合互动", "笔记工整", "踊跃作答", "紧跟思路",
@@ -127,9 +190,9 @@ class StudentScoreWindow:
         self.readonly = readonly
         self.win = tk.Toplevel(parent)
         self.win.title("学生积分（只读）· 课程表" if readonly else "学生积分 · 课程表")
-        self.win.geometry("1000x640")
-        self.win.minsize(820, 560)
+        fit_geometry(self.win, 1000, 640, 820, 560)
         self.win.configure(bg=BG_MAIN)
+        self.win._readonly = readonly      # 供悬浮球判断是否需要切换模式
 
         # ---- 数据 ----
         self.class_list = _load_json(CLASS_FILE, []) or []
@@ -139,22 +202,21 @@ class StudentScoreWindow:
 
         if default_class not in self.class_list:
             self.class_list.append(default_class)
+
+        self.current_class = default_class
         for c in self.class_list:
             self.all_students.setdefault(c, {})
             self.group_data.setdefault(c, {})
+            for info in self.all_students.get(c, {}).values():
+                if isinstance(info, dict):
+                    info.setdefault("records", [])
 
-        # 积分按小组记录：清理旧的个人积分字段（只读模式不改动）
-        if not readonly:
-            for students in self.all_students.values():
-                for stu in students.values():
-                    stu.pop("total_score", None)
-                    stu.pop("record", None)
-        for groups in self.group_data.values():
-            for group in groups.values():
-                group.setdefault("total_score", 0)
-                group.setdefault("record", [])
+        # 积分按“人”记录：把旧版按小组的记录迁移到组长名下（只读模式只在内存里迁移）
+        migrated = store.migrate_group_records(self.all_students, self.group_data)
+        changed = store.sync_group_totals(self.all_students, self.group_data)
+        if not readonly and (migrated or changed):
+            self._save_all()
 
-        self.current_class = default_class
         self.view_mode = "group"          # 默认按小组展示
         self.selected_ids = set()
         self._cards = {}
@@ -162,6 +224,7 @@ class StudentScoreWindow:
         self._anim_jobs = {}
         self._layout_job = None
         self._score_win = None
+        self._charts = []        # 已打开的统计图表窗口，数据变化时实时重绘
 
         self._build()
         self._sync_view_ui()
@@ -247,23 +310,24 @@ class StudentScoreWindow:
 
     # ========== 卡片渲染 / 布局 ==========
     def _card_text(self, sid, info, group=None):
+        # 分成 4 行，避免「组名 + 积分」太长被卡片宽度裁掉
         if group:
             gname, is_leader, total = group
-            return f"{sid}\n{info['name']}\n{'★' if is_leader else ''}{gname} {total}分"
-        return f"{sid}\n{info['name']}\n未分组"
+            return f"{sid}\n{info['name']}\n{'★' if is_leader else ''}{gname}\n{total}分"
+        return f"{sid}\n{info['name']}\n未分组\n—"
 
     def _groups(self):
         return self.group_data.setdefault(self.current_class, {})
 
     def _group_map(self):
-        """当前班级：学号 → (小组名, 是否组长, 小组积分)。"""
+        """当前班级：学号 → (小组名, 是否组长, 个人积分)。"""
         stu = self.all_students.get(self.current_class, {})
         result = {}
         for gname, group in self._groups().items():
             for sid in group.get("members", []):
                 if sid in stu and sid not in result:
                     result[sid] = (gname, group.get("leader") == sid,
-                                   int(group.get("total_score", 0)))
+                                   store.student_total(stu[sid]))
         return result
 
     def _selected_groups(self):
@@ -272,6 +336,11 @@ class StudentScoreWindow:
         chosen = {sid for sid in self.selected_ids if sid in stu}
         return [gname for gname, group in self._groups().items()
                 if chosen & set(group.get("members", []))]
+
+    def _iter_records(self):
+        """遍历当前班级所有个人积分记录：(小组, 学号, 姓名, 记录)。"""
+        return store.iter_point_records(self.all_students, self.group_data,
+                                        self.current_class)
 
     def _switch_view(self, mode):
         if mode == self.view_mode:
@@ -329,6 +398,7 @@ class StudentScoreWindow:
 
         self._update_count()
         self._schedule_layout()
+        self._refresh_charts()
 
     def _render_group_cards(self):
         groups = self._groups()
@@ -343,7 +413,7 @@ class StudentScoreWindow:
             members = [s for s in group.get("members", []) if s in stu]
             leader = group.get("leader", "")
             leader_name = stu[leader]["name"] if leader in stu else "未指定"
-            total = int(group.get("total_score", 0))
+            total = store.group_total(group, stu)
             text = f"{gname}\n{len(members)}人 · {total}分\n组长 {leader_name}"
             card = tk.Button(self.inner, text=text, font=(FONT, 11),
                              bg=CARD_BG, fg=FG_TEXT,
@@ -353,8 +423,34 @@ class StudentScoreWindow:
             card.bind("<MouseWheel>", self._on_wheel)
             self._group_cards[gname] = card
 
+    def _refresh_scores(self):
+        """只刷新卡片上的积分文本，不重建控件（实时生效、不闪屏）。"""
+        stu = self.all_students.get(self.current_class, {})
+        if self.view_mode == "group":
+            groups = self._groups()
+            for gname, card in self._group_cards.items():
+                if not card.winfo_exists():
+                    continue
+                group = groups.get(gname)
+                if not group:
+                    continue
+                members = [s for s in group.get("members", []) if s in stu]
+                leader = group.get("leader", "")
+                leader_name = stu[leader]["name"] if leader in stu else "未指定"
+                total = store.group_total(group, stu)
+                card.config(text=f"{gname}\n{len(members)}人 · {total}分\n组长 {leader_name}")
+        else:
+            group_map = self._group_map()
+            for sid, card in self._cards.items():
+                info = stu.get(sid)
+                if not info or not card.winfo_exists():
+                    continue
+                card.config(text=self._card_text(sid, info, group_map.get(sid)))
+        self._update_count()
+        self._refresh_charts()
+
     def _open_group_detail(self, gname):
-        """查看小组：组员名单 + 本组每次得失及原因。"""
+        """查看小组：组员各自的积分与每次得失记录。"""
         group = self._groups().get(gname)
         if not group:
             return
@@ -362,50 +458,48 @@ class StudentScoreWindow:
         members = [s for s in group.get("members", []) if s in stu]
         leader = group.get("leader", "")
         leader_text = f"{leader} {stu[leader]['name']}" if leader in stu else "未指定"
-        total = int(group.get("total_score", 0))
+        total = store.group_total(group, stu)
 
-        win = self._dialog(f"小组详情 · {gname}", 640, 560)
+        win = self._dialog(f"小组详情 · {gname}", 680, 620)
         tk.Label(win, text=gname, font=(FONT, 16, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 2))
-        tk.Label(win, text=f"组长：{leader_text}    人数：{len(members)}    当前积分：{total} 分",
+        tk.Label(win, text=f"组长：{leader_text}    人数：{len(members)}    小组积分：{total} 分",
                  font=(FONT, 10), bg=BG_MAIN, fg=FG_TEXT).pack()
-        tk.Label(win, text="积分按小组记录，组内成员共同获得本组积分",
+        tk.Label(win, text="积分记在个人名下，小组积分 = 组员积分之和",
                  font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM).pack(pady=(2, 0))
 
-        tk.Label(win, text="小组成员", font=(FONT, 10, "bold"),
-                 bg=BG_MAIN, fg=FG_DIM).pack(anchor="w", padx=18, pady=(12, 4))
-        names = "、".join(
-            f"{s} {stu[s]['name']}" + ("（组长）" if s == leader else "")
-            for s in members
-        ) or "（无成员）"
-        tk.Label(win, text=names, font=(FONT, 10), bg=BG_MAIN, fg=FG_TEXT,
-                 wraplength=580, justify=tk.LEFT).pack(anchor="w", padx=18)
-
-        tk.Label(win, text="得失记录", font=(FONT, 10, "bold"),
-                 bg=BG_MAIN, fg=FG_DIM).pack(anchor="w", padx=18, pady=(12, 4))
         body = tk.Frame(win, bg=BG_PANEL)
-        body.pack(fill=tk.BOTH, expand=True, padx=18)
+        body.pack(fill=tk.BOTH, expand=True, padx=18, pady=10)
         txt = tk.Text(body, font=("Consolas", 10), bg=BG_PANEL, fg=FG_TEXT,
                       relief=tk.FLAT, padx=10, pady=8, wrap=tk.WORD)
         sb = ttk.Scrollbar(body, orient="vertical", command=txt.yview)
         txt.configure(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        records = group.get("record", [])
-        if not records:
-            txt.insert(tk.END, "（暂无记录）")
-        else:
+
+        if not members:
+            txt.insert(tk.END, "（无成员）")
+        for sid in members:
+            info = stu[sid]
+            mark = "（组长）" if sid == leader else ""
+            txt.insert(tk.END, f"{sid}  {info['name']}{mark}    "
+                               f"{store.student_total(info)} 分\n")
+            records = store.student_records(info)
+            if not records:
+                txt.insert(tk.END, "    （暂无记录）\n")
             for r in reversed(records):
-                sign = "+" if r["operate"] == "加分" else "-"
+                sign = "+" if store.record_delta(r) >= 0 else "-"
                 txt.insert(tk.END,
-                           f"{r['time']}    {sign}{r['score']} 分    {r['reason']}\n")
+                           f"    {r.get('time', '')}    {sign}{abs(int(r.get('score', 0)))} 分"
+                           f"    {r.get('reason', '')}\n")
+            txt.insert(tk.END, "\n")
         txt.config(state=tk.DISABLED)
 
         row = tk.Frame(win, bg=BG_MAIN)
         row.pack(fill=tk.X, padx=18, pady=12)
         if not self.readonly:
-            self._btn(row, "为本组打分",
-                      lambda: (win.destroy(), self._open_score([gname])),
+            self._btn(row, "为本组学生打分",
+                      lambda: (win.destroy(), self._open_score(target_students=members)),
                       primary=True).pack(side=tk.LEFT)
         self._btn(row, "关闭", win.destroy).pack(side=tk.RIGHT)
 
@@ -421,16 +515,18 @@ class StudentScoreWindow:
         self._layout_job = None
         if not self.win.winfo_exists():
             return
-        cols = max(1, (self.canvas.winfo_width() - 16) // CARD_W)
+        cols = max(1, (self.canvas.winfo_width() - 16) // max(1, int(CARD_W * dpi_scale(self.win))))
         cards = (self._group_cards if self.view_mode == "group" else self._cards)
         for idx, card in enumerate(cards.values()):
             if not card.winfo_exists():
                 continue
             card.grid(row=idx // cols, column=idx % cols, padx=6, pady=6, sticky="nsew")
-        for c in range(cols):
-            self.inner.grid_columnconfigure(c, weight=1)
-        for c in range(cols, self.inner.grid_size()[0]):
-            self.inner.grid_columnconfigure(c, weight=0)
+        # 列数变化时把旧的列权重清掉，否则窗口放大后再缩小会残留空白列
+        previous = getattr(self, "_grid_cols", 0)
+        for c in range(max(cols, previous)):
+            self.inner.grid_columnconfigure(c, weight=1 if c < cols else 0,
+                                            minsize=0, uniform="")
+        self._grid_cols = cols
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def _on_inner_configure(self, _event=None):
@@ -462,7 +558,9 @@ class StudentScoreWindow:
             return
         self.inner.update_idletasks()
         total = max(1, self.inner.winfo_height())
-        frac = max(0.0, min(1.0, (card.winfo_y() - 60) / total))
+        # 顶部偏移按 DPI 放大，否则高 DPI 下会滚不到位
+        offset = int(60 * dpi_scale(self.win))
+        frac = max(0.0, min(1.0, (card.winfo_y() - offset) / total))
         self.canvas.yview_moveto(frac)
 
     # ========== 选择 / 随机点名 ==========
@@ -525,21 +623,136 @@ class StudentScoreWindow:
         self._update_count()
 
     def _random_call(self):
+        """随机点名：先快速滚动高亮，再定格并弹出带彩带的结果窗口。"""
         if self.view_mode == "group":
             self._switch_view("student")
         if not self._cards:
             self._set_status("班级暂无学生", FG_WARN)
             return
-        sid = random.choice(list(self._cards))
-        info = self.all_students[self.current_class][sid]
-        self.selected_ids = {sid}
-        for s, card in self._cards.items():
-            self._animate(card, CARD_SELECT if s == sid else CARD_BG)
-        self._update_count()
-        self._center_on(sid)
-        group = self._group_map().get(sid)
-        extra = f"（{group[0]} {group[2]} 分）" if group else "（未分组）"
-        self._set_status(f"🎲 随机点名：{sid} {info['name']}{extra}", FG_ACCENT)
+
+        sids = list(self._cards)
+        stu = self.all_students[self.current_class]
+        self._call_seq = getattr(self, "_call_seq", 0) + 1
+        seq = self._call_seq
+        steps = 20
+
+        def paint():
+            for s, card in self._cards.items():
+                if card.winfo_exists():
+                    card.config(bg=CARD_SELECT if s in self.selected_ids else CARD_BG)
+
+        def roll(step):
+            if seq != self._call_seq or not self.win.winfo_exists():
+                return
+            s = random.choice(sids)
+            paint()
+            card = self._cards.get(s)
+            if card and card.winfo_exists():
+                card.config(bg=CARD_FLASH)
+            self._set_status(f"🎲 抽取中… {stu[s]['name']}", FG_ACCENT)
+            if step >= steps:
+                self.win.after(180, finish)
+            else:
+                # 越到后面滚动越慢，制造"减速"效果
+                self.win.after(40 + step * 7, lambda: roll(step + 1))
+
+        def finish():
+            if seq != self._call_seq or not self.win.winfo_exists():
+                return
+            sid = random.choice(sids)
+            info = stu[sid]
+            self.selected_ids = {sid}
+            paint()
+            self._update_count()
+            self._center_on(sid)
+            self._flash_card(sid, 6)
+            group = self._group_map().get(sid)
+            extra = f"（{group[0]} {group[2]} 分）" if group else "（未分组）"
+            self._set_status(f"🎲 随机点名：{sid} {info['name']}{extra}", FG_ACCENT)
+            self._show_call_result(sid, info, group)
+
+        roll(0)
+
+    def _flash_card(self, sid, times=6):
+        """定格后让卡片金色闪烁几次。"""
+        card = self._cards.get(sid)
+        if card is None:
+            return
+
+        def step(n):
+            if not card.winfo_exists():
+                return
+            if n <= 0:
+                self._animate(card, CARD_SELECT)
+                return
+            card.config(bg=CARD_FLASH if n % 2 else CARD_BG)
+            self.win.after(140, lambda: step(n - 1))
+
+        step(times)
+
+    def _show_call_result(self, sid, info, group):
+        """随机点名结果窗口：大字名字 + 彩带下落 + 颜色/字号脉冲。"""
+        k = dpi_scale(self.win)
+        w, h = int(440 * k), int(280 * k)
+        win = tk.Toplevel(self.win)
+        win.title("随机点名")
+        win.configure(bg=BG_MAIN)
+        win.transient(self.win)
+        win.attributes("-topmost", True)
+        cv = tk.Canvas(win, width=w, height=h, bg=BG_MAIN, highlightthickness=0)
+        cv.pack(fill=tk.BOTH, expand=True)
+
+        colors = ["#ffd166", "#06d6a0", "#ef476f", "#4cc9f0", "#f8961e"]
+        particles = []
+        for _ in range(36):
+            x = random.randint(0, w)
+            y = random.randint(-h, 0)
+            size = random.randint(3, 7)
+            item = cv.create_oval(x, y, x + size, y + size,
+                                  fill=random.choice(colors), outline="")
+            particles.append([item, random.uniform(2.0, 5.0) * k,
+                              random.uniform(-0.6, 0.6)])
+
+        name_id = cv.create_text(w // 2, int(h * 0.42), text=info["name"],
+                                 font=(FONT, int(30 * k), "bold"), fill=FG_WARN)
+        sub = sid
+        if group:
+            sub += f" · {group[0]}" + (" · 组长" if group[1] else "")
+        cv.create_text(w // 2, int(h * 0.64), text=sub,
+                       font=(FONT, int(11 * k)), fill=FG_TEXT)
+        cv.create_text(w // 2, h - int(14 * k), text="点击关闭",
+                       font=(FONT, int(8 * k)), fill=FG_DIM)
+
+        state = {"seq": getattr(self, "_call_seq", 0), "frame": 0}
+
+        def tick():
+            if not win.winfo_exists() or state["seq"] != getattr(self, "_call_seq", 0):
+                return
+            for p in particles:
+                cv.move(p[0], p[2], p[1])
+                box = cv.coords(p[0])
+                if box and box[1] > h:
+                    cv.move(p[0], 0, -h - 20)
+            n = state["frame"]
+            if n < 90:
+                size = 30 + int(2 * abs((n % 20) - 10))
+                cv.itemconfig(name_id, font=(FONT, int(size * k), "bold"),
+                              fill=colors[(n // 5) % len(colors)])
+                state["frame"] = n + 1
+                win.after(45, tick)
+            else:
+                cv.itemconfig(name_id, font=(FONT, int(32 * k), "bold"), fill=FG_WARN)
+
+        def close(_event=None):
+            if win.winfo_exists():
+                win.destroy()
+
+        win.bind("<Button-1>", close)
+        cv.bind("<Button-1>", close)
+        win.protocol("WM_DELETE_WINDOW", close)
+        win.after(4500, close)
+        center_window(win, self.win, w, h, auto=False)
+        tick()
 
     def _selected_or_warn(self) -> bool:
         if self.selected_ids:
@@ -585,15 +798,29 @@ class StudentScoreWindow:
         _save_json(GROUP_FILE, self.group_data)
         _save_json(WEEKLY_ARCHIVE, dict(self.week_archive))
 
+    def _log_ops(self, lines):
+        """把加减分操作追加到 logs/score_operations.log（失败不影响业务）。"""
+        if not lines:
+            return
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            with open(OP_LOG, "a", encoding="utf-8") as f:
+                for line in lines:
+                    f.write(line + "\n")
+        except OSError:
+            pass
+
     # ========== 通用小部件 ==========
     def _dialog(self, title, w, h):
         win = tk.Toplevel(self.win)
         win.title(title)
-        win.geometry(f"{w}x{h}")
         win.configure(bg=BG_MAIN)
         win.transient(self.win)
         win.grab_set()
         win.resizable(False, False)
+        # 内容由调用方添加，等布局完成后再按实际需要居中
+        win.after_idle(
+            lambda: center_window(win, self.win, w, h) if win.winfo_exists() else None)
         return win
 
     def _entry(self, parent, width=18):
@@ -751,126 +978,159 @@ class StudentScoreWindow:
         self._btn(row, "取消", win.destroy).pack(side=tk.LEFT, padx=6)
 
     # ========== 评价打分 ==========
-    def _open_score(self, target_groups=None):
+    def _open_score(self, target_groups=None, target_students=None):
         if not self._can_write():
             return
         if self._score_win and self._score_win.winfo_exists():
             self._score_win.lift()
             return
-        if target_groups is None:
-            if self.view_mode == "group":
+        stu = self.all_students.get(self.current_class, {})
+        groups = self._groups()
+
+        sids = list(target_students or [])
+        if not sids:
+            if target_groups:
+                for gname in target_groups:
+                    group = groups.get(gname)
+                    if group:
+                        sids += [s for s in group.get("members", []) if s in stu]
+            elif self.view_mode == "group":
                 gname = self._pick_group("评价打分")
                 if not gname:
                     return
-                target_groups = [gname]
+                sids = [s for s in groups[gname].get("members", []) if s in stu]
             else:
                 if not self._selected_or_warn():
                     return
-                target_groups = self._selected_groups()
-        target_groups = [g for g in target_groups if g in self._groups()]
-        if not target_groups:
-            messagebox.showinfo(
-                "提示",
-                "选中的学生还没有分组。积分按小组记录，请先在\n"
-                "「更多功能 → 小组管理」中设置小组。",
-                parent=self.win,
-            )
+                sids = [s for s in sorted(self.selected_ids) if s in stu]
+        sids = list(dict.fromkeys(sids))
+        if not sids:
+            messagebox.showinfo("提示", "所选范围内没有学生", parent=self.win)
             return
 
-        win = self._dialog("评价打分", 500, 360)
+        gmap = store.student_group_map(groups, stu)
+        win = self._dialog("评价打分", 560, 590)
         self._score_win = win
         tk.Label(win, text="评价打分", font=(FONT, 14, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 2))
-        tk.Label(win, text=f"将记入 {len(target_groups)} 个小组：{'、'.join(target_groups)}",
-                 font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM,
-                 wraplength=440, justify=tk.CENTER).pack()
+        tk.Label(win, text="积分记在每位学生名下，可只勾选本次涉及的学生",
+                 font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM).pack()
+
+        pick_body = tk.Frame(win, bg=BG_PANEL,
+                             highlightbackground=BG_CELL, highlightthickness=1)
+        pick_body.pack(fill=tk.BOTH, expand=True, padx=22, pady=(8, 6))
+        cv = tk.Canvas(pick_body, bg=BG_PANEL, height=150, highlightthickness=0, bd=0)
+        sb = ttk.Scrollbar(pick_body, orient="vertical", command=cv.yview)
+        cv.configure(yscrollcommand=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        cv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        pick_inner = tk.Frame(cv, bg=BG_PANEL)
+        cv.create_window((0, 0), window=pick_inner, anchor="nw")
+        pick_inner.bind("<Configure>",
+                        lambda e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.bind("<MouseWheel>",
+                lambda e: cv.yview_scroll(int(-e.delta / 120), "units"))
+
+        vars_ = {}
+        for sid in sids:
+            info = stu[sid]
+            var = tk.BooleanVar(value=True)
+            vars_[sid] = var
+            gname = gmap.get(sid, "未分组")
+            tk.Checkbutton(pick_inner, text=f"{sid}  {info['name']}（{gname}）",
+                           variable=var, font=(FONT, 10), bg=BG_PANEL, fg=FG_TEXT,
+                           selectcolor=BG_CELL, activebackground=BG_PANEL,
+                           activeforeground=FG_TEXT, anchor="w")\
+                .pack(fill=tk.X, padx=8, pady=1)
 
         form = tk.Frame(win, bg=BG_MAIN)
-        form.pack(padx=24, pady=10, fill=tk.X)
+        form.pack(padx=24, pady=4, fill=tk.X)
         form.columnconfigure(1, weight=1)
-
-        # 加分 / 扣分
-        tk.Label(form, text="类型", font=(FONT, 10), bg=BG_MAIN, fg=FG_DIM)\
-            .grid(row=0, column=0, sticky="w", pady=6)
-        op_var = tk.StringVar(value="加分")
-        op_frame = tk.Frame(form, bg=BG_MAIN)
-        op_frame.grid(row=0, column=1, sticky="w", pady=6)
-        for txt in ("加分", "扣分"):
-            tk.Radiobutton(op_frame, text=txt, variable=op_var, value=txt,
-                           bg=BG_MAIN, fg=FG_TEXT, selectcolor=BG_CELL,
-                           activebackground=BG_MAIN, activeforeground=FG_TEXT,
-                           font=(FONT, 10)).pack(side=tk.LEFT, padx=(0, 16))
 
         # 分类
         tk.Label(form, text="分类", font=(FONT, 10), bg=BG_MAIN, fg=FG_DIM)\
-            .grid(row=1, column=0, sticky="w", pady=6)
+            .grid(row=0, column=0, sticky="w", pady=5)
         cat_box = ttk.Combobox(form, values=list(reason_categories), state="readonly",
                                width=22, font=(FONT, 10))
         cat_box.current(0)
-        cat_box.grid(row=1, column=1, sticky="w", pady=6)
+        cat_box.grid(row=0, column=1, sticky="w", pady=5)
 
-        # 具体理由
+        # 具体理由：可直接输入自定义理由
         tk.Label(form, text="理由", font=(FONT, 10), bg=BG_MAIN, fg=FG_DIM)\
-            .grid(row=2, column=0, sticky="w", pady=6)
-        reason_box = ttk.Combobox(form, values=reason_categories["课堂表现"],
-                                  state="readonly", width=26, font=(FONT, 10))
+            .grid(row=1, column=0, sticky="w", pady=5)
+        reason_box = ttk.Combobox(
+            form, values=reason_categories["常用"] + custom_reasons(),
+            width=26, font=(FONT, 10))
         reason_box.current(0)
-        reason_box.grid(row=2, column=1, sticky="w", pady=6)
+        reason_box.grid(row=1, column=1, sticky="w", pady=5)
 
         def change_cat(_event=None):
-            reason_box["values"] = reason_categories[cat_box.get()]
+            reason_box["values"] = reason_categories[cat_box.get()] + custom_reasons()
             reason_box.current(0)
         cat_box.bind("<<ComboboxSelected>>", change_cat)
 
-        # 分值
+        # 分值：正数加分、负数扣分
         tk.Label(form, text="分值", font=(FONT, 10), bg=BG_MAIN, fg=FG_DIM)\
-            .grid(row=3, column=0, sticky="w", pady=6)
+            .grid(row=2, column=0, sticky="w", pady=5)
         score_entry = self._entry(form, width=10)
-        score_entry.grid(row=3, column=1, sticky="w", pady=6)
+        score_entry.grid(row=2, column=1, sticky="w", pady=5)
+
+        tk.Label(win, text="分值填正数加分、负数扣分（如 3 或 -2）；理由可直接输入新内容，会保存为预设",
+                 font=(FONT, 8), bg=BG_MAIN, fg=FG_DIM,
+                 wraplength=480, justify=tk.CENTER).pack()
         score_entry.focus_set()
 
         err = tk.Label(win, text="", font=(FONT, 9), bg=BG_MAIN, fg=FG_DANGER)
         err.pack()
 
         def submit():
-            mode = op_var.get()
+            chosen = [sid for sid in sids if vars_[sid].get()]
             reason = reason_box.get().strip()
             score_str = score_entry.get().strip()
+            if not chosen:
+                err.config(text="请至少勾选一名学生")
+                return
+            if not reason:
+                err.config(text="请填写理由")
+                return
             if not score_str:
                 err.config(text="分值不能为空")
                 return
             try:
-                score = int(score_str)
+                delta = int(score_str)
             except ValueError:
-                err.config(text="分值必须是整数")
+                err.config(text="分值必须是整数（正数加分，负数扣分）")
                 return
-            if score <= 0:
-                err.config(text="分值必须大于 0")
+            if delta == 0:
+                err.config(text="分值不能为 0（正数加分，负数扣分）")
                 return
-            if score > 10 and not messagebox.askyesno(
-                    "提醒", f"分值 {score} 超过 10，确定提交？", parent=win):
+            if abs(delta) > 10 and not messagebox.askyesno(
+                    "提醒", f"分值 {delta:+d} 超过 10，确定提交？", parent=win):
                 return
 
-            now = time.strftime("%Y-%m-%d %H:%M:%S")
-            week = time.strftime("%G-W%V")      # ISO 周次，避免出现 W00
-            class_groups = self._groups()
-            changed = 0
-            for gname in target_groups:
-                group = class_groups.get(gname)
-                if not group:
-                    continue
-                delta = score if mode == "加分" else -score
-                group["total_score"] = int(group.get("total_score", 0)) + delta
-                group.setdefault("record", []).append({
-                    "operate": mode, "score": score, "reason": reason,
-                    "time": now, "week": week,
-                })
-                changed += 1
+            mode = "加分" if delta > 0 else "扣分"
+            score = abs(delta)
+            # 自定义理由：保存下来，下次可直接选用
+            if reason not in reason_categories.get(cat_box.get(), []) \
+                    and reason not in custom_reasons():
+                add_custom_reason(reason)
+
+            count = store.add_point_records(self.all_students, self.group_data,
+                                            self.current_class, chosen, reason, delta)
             self._save_all()
+            now = time.strftime("%Y-%m-%d %H:%M:%S")
+            log_lines = []
+            for sid in chosen:
+                info = stu.get(sid, {})
+                log_lines.append(
+                    f"{now} | {self.current_class} | {sid} {info.get('name', '')} | "
+                    f"{mode} {score} 分 | {reason} | 余额 {store.student_total(info)}")
+            self._log_ops(log_lines)
             win.destroy()
             self._score_win = None
-            self._render_cards()
-            self._set_status(f"已为 {changed} 个小组{mode} {score} 分 · {reason}", FG_OK)
+            # 只刷新数字，不重建卡片：积分即时变化，不会闪屏
+            self._refresh_scores()
+            self._set_status(f"已为 {count} 名学生{mode} {score} 分 · {reason}", FG_OK)
 
         row = tk.Frame(win, bg=BG_MAIN)
         row.pack(pady=(6, 14))
@@ -882,40 +1142,89 @@ class StudentScoreWindow:
     def _revoke_record(self):
         if not self._can_write():
             return
-        groups = self._groups()
-        if not groups:
-            messagebox.showinfo("提示", "当前班级还没有小组", parent=self.win)
-            return
-        gname = self._pick_group("撤回积分记录", self._selected_groups())
-        if not gname:
-            return
-        group = groups[gname]
-        records = group.get("record", [])
-        if not records:
-            messagebox.showinfo("提示", f"小组「{gname}」暂无操作记录", parent=self.win)
+        stu = self.all_students.get(self.current_class, {})
+        gmap = store.student_group_map(self._groups(), stu)
+
+        win = self._dialog("撤回积分记录", 760, 560)
+        tk.Label(win, text="撤回积分记录", font=(FONT, 14, "bold"),
+                 bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 2))
+        tk.Label(win, text="积分记在个人名下；撤回后该学生积分立即回退",
+                 font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM).pack()
+
+        body = tk.Frame(win, bg=BG_MAIN)
+        body.pack(fill=tk.BOTH, expand=True, padx=16, pady=10)
+        tree = ttk.Treeview(body, columns=("time", "student", "group", "delta", "reason"),
+                            show="headings", selectmode="browse")
+        for col, text, width in (("time", "时间", 150), ("student", "学生", 130),
+                                 ("group", "小组", 110), ("delta", "分值", 70),
+                                 ("reason", "理由", 220)):
+            tree.heading(col, text=text)
+            tree.column(col, width=width, anchor="w" if col in ("student", "group", "reason")
+                        else "center")
+        sb = ttk.Scrollbar(body, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def fill():
+            tree.delete(*tree.get_children())
+            rows = []
+            for sid, info in stu.items():
+                for idx, rec in enumerate(store.student_records(info)):
+                    if isinstance(rec, dict):
+                        rows.append((sid, info.get("name", ""), idx, rec))
+            rows.sort(key=lambda item: item[3].get("time", ""), reverse=True)
+            for sid, name, idx, rec in rows:
+                delta = store.record_delta(rec)
+                tree.insert("", tk.END, iid=f"{sid}|{idx}", values=(
+                    rec.get("time", ""), f"{sid} {name}",
+                    gmap.get(sid, "未分组"),
+                    f"{delta:+d}", rec.get("reason", "")))
+            return bool(rows)
+
+        def revoke():
+            sel = tree.selection()
+            if not sel:
+                messagebox.showinfo("提示", "请先选择一条记录", parent=win)
+                return
+            sid, idx_text = sel[0].rsplit("|", 1)
+            info = stu.get(sid)
+            if not info:
+                return
+            records = store.student_records(info)
+            try:
+                idx = int(idx_text)
+                rec = records[idx]
+            except (ValueError, IndexError):
+                return
+            if not messagebox.askyesno(
+                    "确认撤回",
+                    f"撤回 {sid} {info.get('name', '')} 的这条记录？\n\n"
+                    f"{rec.get('time', '')}  {rec.get('reason', '')}  "
+                    f"{store.record_delta(rec):+d} 分",
+                    parent=win):
+                return
+            records.pop(idx)
+            info["total_score"] = store.student_total(info)
+            store.sync_group_totals(self.all_students, self.group_data)
+            self._save_all()
+            self._log_ops([f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {self.current_class} | "
+                           f"{sid} {info.get('name', '')} | 撤回 {rec.get('reason', '')} | "
+                           f"原记录 {rec.get('time', '')}"])
+            self._refresh_scores()
+            if not fill():
+                win.destroy()
+            self._set_status(f"已撤回 {sid} {info.get('name', '')} 的积分记录", FG_OK)
+
+        if not fill():
+            win.destroy()
+            messagebox.showinfo("提示", "当前班级暂无积分记录", parent=self.win)
             return
 
-        lines = [f"小组「{gname}」—— 请输入要撤回的序号：", ""]
-        for idx, r in enumerate(records):
-            lines.append(f"{idx} | {r['time']} | {r['operate']}{r['score']}分 | {r['reason']}")
-        num = simpledialog.askstring("撤回积分记录", "\n".join(lines), parent=self.win)
-        if num is None:
-            return
-        try:
-            idx = int(num.strip())
-        except ValueError:
-            messagebox.showerror("错误", "请输入合法数字", parent=self.win)
-            return
-        if idx < 0 or idx >= len(records):
-            messagebox.showerror("错误", "序号超出范围", parent=self.win)
-            return
-
-        rec = records.pop(idx)
-        group["total_score"] = int(group.get("total_score", 0)) + (
-            -rec["score"] if rec["operate"] == "加分" else rec["score"])
-        self._save_all()
-        self._render_cards()
-        self._set_status(f"已撤回 {gname}：{rec['operate']}{rec['score']}分 {rec['reason']}", FG_OK)
+        row = tk.Frame(win, bg=BG_MAIN)
+        row.pack(fill=tk.X, padx=16, pady=(0, 12))
+        self._btn(row, "撤回选中记录", revoke, primary=True).pack(side=tk.LEFT)
+        self._btn(row, "关闭", win.destroy).pack(side=tk.RIGHT)
 
     def _pick_group(self, title, prefer=None):
         """弹出小组选择框，返回小组名或 None。"""
@@ -957,22 +1266,25 @@ class StudentScoreWindow:
             leader = group.get("leader", "")
             leader_text = f"{leader} {stu[leader]['name']}" if leader in stu else "未指定"
             members = [s for s in group.get("members", []) if s in stu]
-            total = int(group.get("total_score", 0))
+            total = store.group_total(group, stu)
             parts.append(f"小组：{gname}    组长：{leader_text}    "
-                         f"人数：{len(members)}    当前积分：{total}")
-            records = group.get("record", [])
-            if records:
-                for r in records:
-                    parts.append(f"    {r['time']}    {r['operate']}{r['score']}    {r['reason']}")
-            else:
-                parts.append("    （暂无记录）")
+                         f"人数：{len(members)}    小组积分：{total}")
+            for sid in members:
+                info = stu[sid]
+                records = store.student_records(info)
+                parts.append(f"  {sid} {info['name']}    {store.student_total(info)} 分")
+                if not records:
+                    parts.append("      （暂无记录）")
+                for r in reversed(records):
+                    delta = store.record_delta(r)
+                    parts.append(f"      {r.get('time', '')}    {delta:+d}    "
+                                 f"{r.get('reason', '')}")
             parts.append("-" * 56)
-        self._text_window("积分明细（按小组）", "\n".join(parts))
+        self._text_window("积分明细（按小组 → 组员）", "\n".join(parts))
 
     def _text_window(self, title, content):
         win = tk.Toplevel(self.win)
         win.title(title)
-        win.geometry("720x480")
         win.configure(bg=BG_MAIN)
         win.transient(self.win)
         tk.Label(win, text=title, font=(FONT, 14, "bold"),
@@ -987,38 +1299,156 @@ class StudentScoreWindow:
         txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         txt.insert(tk.END, content)
         txt.config(state=tk.DISABLED)
+        # 按 DPI 放大并居中，和其余弹窗保持一致
+        k = dpi_scale(self.win)
+        center_window(win, self.win, int(720 * k), int(480 * k))
         return win, txt
 
-    # ========== 周度统计 ==========
+    # ========== 图表窗口 ==========
+    def _chart_window(self, title, width=780, height=500, draw=None):
+        """统一的图表窗口；内容放进可滚动区域，行数多或屏幕小时不会被裁掉。"""
+        win = tk.Toplevel(self.win)
+        win.title(title)
+        win.configure(bg=BG_MAIN)
+        win.transient(self.win)
+        tk.Label(win, text=title, font=(FONT, 14, "bold"),
+                 bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(12, 4))
+
+        outer = tk.Frame(win, bg=BG_PANEL)
+        outer.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 8))
+        outer.rowconfigure(0, weight=1)
+        outer.columnconfigure(0, weight=1)
+        cv = tk.Canvas(outer, bg=BG_PANEL, highlightthickness=0, bd=0)
+        vsb = ttk.Scrollbar(outer, orient="vertical", command=cv.yview)
+        hsb = ttk.Scrollbar(outer, orient="horizontal", command=cv.xview)
+        cv.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        cv.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+
+        body = tk.Frame(cv, bg=BG_PANEL)
+        cv.create_window((0, 0), window=body, anchor="nw")
+        body.bind("<Configure>",
+                  lambda e: cv.configure(scrollregion=cv.bbox("all")))
+
+        self._btn(win, "关闭", win.destroy).pack(pady=(0, 12))
+        if draw is not None:
+            draw(body)
+            self._charts.append((win, body, draw))
+            win.bind("<Destroy>",
+                     lambda e, w=win: self._charts.__setitem__(
+                         slice(None), [c for c in self._charts if c[0] is not w]))
+        # 图表内容已绘制，等布局完成后再按 DPI 缩放并居中
+        k = dpi_scale(self.win)
+        win.after_idle(
+            lambda: center_window(win, self.win, int(width * k), int(height * k))
+            if win.winfo_exists() else None)
+        return body
+
+    def _refresh_charts(self):
+        """积分变化后重绘所有仍打开的统计图表。"""
+        for win, body, draw in list(self._charts):
+            if not win.winfo_exists():
+                continue
+            for child in body.winfo_children():
+                child.destroy()
+            try:
+                draw(body)
+            except tk.TclError:
+                pass
+
     def _week_chart(self):
-        groups = self._groups()
-        if not groups:
+        """周度统计：按周次画双向条形图（加分向右，扣分向左）。"""
+        if not self._groups():
             messagebox.showinfo("提示", "当前班级还没有小组", parent=self.win)
             return
 
-        week_data = defaultdict(lambda: {"add": 0, "sub": 0})
-        for group in groups.values():
-            for r in group.get("record", []):
+        def collect():
+            week_data = defaultdict(lambda: {"add": 0, "sub": 0})
+            for _gname, _sid, _name, r in self._iter_records():
                 d = week_data[r.get("week", "未知")]
-                if r["operate"] == "加分":
-                    d["add"] += r["score"]
+                if store.record_delta(r) >= 0:
+                    d["add"] += abs(int(r.get("score", 0)))
                 else:
-                    d["sub"] += r["score"]
-        if not week_data:
+                    d["sub"] += abs(int(r.get("score", 0)))
+            return [(w, d["add"], d["sub"]) for w, d in sorted(week_data.items())]
+
+        rows = collect()
+        if not rows:
             messagebox.showinfo("提示", "暂无周度数据", parent=self.win)
             return
 
-        win, txt = self._text_window(f"周度积分统计 · {self.current_class}（小组）", "")
-        txt.config(state=tk.NORMAL)
-        txt.tag_configure("dim", foreground=FG_DIM)
-        txt.tag_configure("add", foreground=FG_OK)
-        txt.tag_configure("sub", foreground=FG_DANGER)
-        for w, d in sorted(week_data.items()):
-            txt.insert(tk.END, f"{w:>9}  加分 {d['add']:>3}  ", "dim")
-            txt.insert(tk.END, "■" * min(d["add"] // 2, 40) + "\n", "add")
-            txt.insert(tk.END, f"{'':>9}  扣分 {d['sub']:>3}  ", "dim")
-            txt.insert(tk.END, "□" * min(d["sub"] // 2, 40) + "\n\n", "sub")
-        txt.config(state=tk.DISABLED)
+        def draw(body):
+            charts.bar_chart(body, collect(), width=720).pack(fill=tk.BOTH, expand=True)
+
+        self._chart_window(f"周度积分统计 · {self.current_class}", 760,
+                           120 + 34 * len(rows), draw)
+
+    def _group_bar(self):
+        """小组双向条形图：加分向右（绿），扣分向左（红）。"""
+        if not self._groups():
+            messagebox.showinfo("提示", "当前班级还没有小组", parent=self.win)
+            return
+
+        def collect():
+            rows = []
+            for gname, group in self._groups().items():
+                add = sub = 0
+                stu = self.all_students.get(self.current_class, {})
+                for sid in group.get("members", []):
+                    info = stu.get(sid)
+                    if not info:
+                        continue
+                    for r in store.student_records(info):
+                        if store.record_delta(r) >= 0:
+                            add += abs(int(r.get("score", 0)))
+                        else:
+                            sub += abs(int(r.get("score", 0)))
+                rows.append((gname, add, sub))
+            # 净得分高的排在上面，更直观
+            rows.sort(key=lambda x: -(x[1] - x[2]))
+            return rows
+
+        rows = collect()
+        if not any(a or b for _, a, b in rows):
+            messagebox.showinfo("提示", "暂无加减分记录", parent=self.win)
+            return
+
+        def draw(body):
+            charts.bar_chart(body, collect(), width=740).pack(fill=tk.BOTH, expand=True)
+
+        self._chart_window(f"小组加减分对比 · {self.current_class}", 780,
+                           140 + 34 * len(rows), draw)
+
+    def _reason_pie(self):
+        """理由分布饼图：统计每个理由出现的次数与占比。"""
+        def collect():
+            counter = defaultdict(int)
+            for _gname, _sid, _name, r in self._iter_records():
+                counter[r.get("reason", "未填写")] += 1
+            return sorted(counter.items(), key=lambda kv: -kv[1])
+
+        if not collect():
+            messagebox.showinfo("提示", "暂无加减分记录", parent=self.win)
+            return
+
+        def draw(body):
+            charts.pie_chart(body, collect()).pack(fill=tk.BOTH, expand=True)
+
+        self._chart_window(f"理由分布 · {self.current_class}", 780, 480, draw)
+
+    # ========== 操作日志 ==========
+    def _view_op_log(self):
+        if not OP_LOG.exists():
+            messagebox.showinfo("操作日志", "暂无操作日志", parent=self.win)
+            return
+        try:
+            lines = OP_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as exc:
+            messagebox.showerror("操作日志", f"读取失败：{exc}", parent=self.win)
+            return
+        tail = lines[-800:]
+        self._text_window(f"操作日志（最近 {len(tail)} 条）", "\n".join(tail))
 
     # ========== 低积分预警 ==========
     def _low_score_warn(self):
@@ -1026,18 +1456,18 @@ class StudentScoreWindow:
         if not groups:
             messagebox.showinfo("提示", "当前班级还没有小组", parent=self.win)
             return
+        limit = low_score_limit()          # settings.json 可配置，默认 60
         stu = self.all_students.get(self.current_class, {})
         warn = []
         for gname, group in groups.items():
-            total = int(group.get("total_score", 0))
-            if total >= LOW_SCORE_LIMIT:
+            total = store.group_total(group, stu)
+            if total >= limit:
                 continue
             leader = group.get("leader", "")
             leader_text = f"组长 {leader} {stu[leader]['name']}" if leader in stu else "未指定组长"
             warn.append(f"{gname}（{leader_text}）：{total} 分")
         if warn:
-            self._text_window(f"低积分预警（低于 {LOW_SCORE_LIMIT} 分）",
-                              "\n".join(warn))
+            self._text_window(f"低积分预警（低于 {limit} 分）", "\n".join(warn))
             self._set_status(f"{len(warn)} 个小组积分偏低", FG_WARN)
         else:
             messagebox.showinfo("低积分预警", "所有小组积分正常", parent=self.win)
@@ -1046,15 +1476,21 @@ class StudentScoreWindow:
     def _manual_score(self):
         if not self._can_write():
             return
-        if not self._selected_or_warn():
+        stu = self.all_students.get(self.current_class, {})
+        sids = [s for s in sorted(self.selected_ids) if s in stu]
+        if not sids and self.view_mode == "group":
+            gname = self._pick_group("手动修改积分")
+            if not gname:
+                return
+            sids = [s for s in self._groups()[gname].get("members", []) if s in stu]
+        if not sids:
+            messagebox.showinfo("提示", "请先选择学生（或切换到「按学生」视图）",
+                                parent=self.win)
             return
-        target_groups = self._selected_groups()
-        if not target_groups:
-            messagebox.showinfo("提示", "选中的学生还没有分组", parent=self.win)
-            return
+        names = "、".join(f"{s} {stu[s]['name']}" for s in sids)
         num = simpledialog.askstring(
             "手动修改积分",
-            f"为选中的 {len(target_groups)} 个小组设置新积分：\n{'、'.join(target_groups)}",
+            f"把选中的 {len(sids)} 名学生积分设为：\n{names}",
             parent=self.win,
         )
         if num is None:
@@ -1064,23 +1500,48 @@ class StudentScoreWindow:
         except ValueError:
             messagebox.showerror("错误", "请输入整数", parent=self.win)
             return
-        groups = self._groups()
-        for gname in target_groups:
-            if gname in groups:
-                groups[gname]["total_score"] = new_score
+        if not messagebox.askyesno(
+                "确认修改",
+                f"确定把这些学生的积分直接设为 {new_score} 分？\n\n"
+                f"{names}\n\n"
+                "（差额会写入一条「手动调整」记录）",
+                parent=self.win):
+            return
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        week = time.strftime("%G-W%V")
+        log_lines = []
+        for sid in sids:
+            info = stu[sid]
+            old = store.student_total(info)
+            delta = new_score - old
+            if delta == 0:
+                continue
+            info.setdefault("records", []).append({
+                "operate": "加分" if delta > 0 else "扣分",
+                "score": abs(delta), "reason": "手动调整",
+                "time": now, "week": week,
+            })
+            info["total_score"] = store.student_total(info)
+            log_lines.append(f"{now} | {self.current_class} | {sid} {info['name']} | "
+                             f"手动改分 {old} → {new_score}")
+        store.sync_group_totals(self.all_students, self.group_data)
         self._save_all()
-        self._render_cards()
-        self._set_status(f"已将 {len(target_groups)} 个小组积分设为 {new_score}", FG_OK)
+        self._log_ops(log_lines)
+        self._refresh_scores()
+        self._set_status(f"已将 {len(sids)} 名学生积分设为 {new_score}", FG_OK)
 
     # ========== 本周归档 ==========
     def _archive_week(self):
         if not self._can_write():
             return
         wk = time.strftime("%G-W%V")
+        store.sync_group_totals(self.all_students, self.group_data)
+        # 用 JSON 序列化深拷贝，避免 deepcopy 在含循环引用时的性能/内存问题
+        snapshot = json.loads(json.dumps(self._groups(), ensure_ascii=False))
         self.week_archive[wk].append({
             "time": time.strftime("%Y-%m-%d %H:%M:%S"),
             "class": self.current_class,
-            "data": copy.deepcopy(self._groups()),
+            "data": snapshot,
         })
         self._save_all()
         self._set_status(f"{self.current_class} · {wk} 小组数据已归档", FG_OK)
@@ -1098,9 +1559,10 @@ class StudentScoreWindow:
         body = tk.Frame(win, bg=BG_MAIN)
         body.pack(fill=tk.BOTH, expand=True, padx=16)
 
+        k = dpi_scale(self.win)
         style = ttk.Style()
         style.configure("Group.Treeview", background=BG_CELL, fieldbackground=BG_CELL,
-                        foreground=FG_TEXT, rowheight=30, borderwidth=0,
+                        foreground=FG_TEXT, rowheight=int(30 * k), borderwidth=0,
                         font=(FONT, 10))
         style.configure("Group.Treeview.Heading", background=BG_PANEL,
                         foreground=FG_ACCENT, relief=tk.FLAT,
@@ -1114,10 +1576,10 @@ class StudentScoreWindow:
         tree.heading("leader", text="组长")
         tree.heading("count", text="人数")
         tree.heading("score", text="积分")
-        tree.column("name", width=240, anchor="w")
-        tree.column("leader", width=160, anchor="center")
-        tree.column("count", width=70, anchor="center")
-        tree.column("score", width=70, anchor="center")
+        tree.column("name", width=int(240 * k), anchor="w")
+        tree.column("leader", width=int(160 * k), anchor="center")
+        tree.column("count", width=int(70 * k), anchor="center")
+        tree.column("score", width=int(70 * k), anchor="center")
         sb = ttk.Scrollbar(body, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=sb.set)
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1131,7 +1593,7 @@ class StudentScoreWindow:
                 leader_text = f"{leader} {stu[leader]['name']}" if leader in stu else "未指定"
                 tree.insert("", tk.END, iid=gname,
                             values=(gname, leader_text, len(members),
-                                    int(group.get("total_score", 0))))
+                                    store.group_total(group, stu)))
             if select and tree.exists(select):
                 tree.selection_set(select)
                 tree.see(select)
@@ -1288,6 +1750,8 @@ class StudentScoreWindow:
                 "total_score": int(old.get("total_score", 0)),
                 "record": list(old.get("record", [])),
             }
+            # 成员调整后按个人积分重新汇总小组积分
+            store.sync_group_totals(self.all_students, self.group_data)
 
             self._save_all()
             self._render_cards()
@@ -1317,14 +1781,20 @@ class StudentScoreWindow:
             [("撤回积分记录", self._revoke_record),
              ("查询积分明细", self._query_detail),
              ("周度积分统计图", self._week_chart),
+             ("理由分布饼图", self._reason_pie),
+             ("小组加减分对比图", self._group_bar),
              ("低积分预警", self._low_score_warn)],
-            [("手动修改积分", self._manual_score),
+            [("查看操作日志", self._view_op_log),
+             ("手动修改积分", self._manual_score),
              ("本周数据归档", self._archive_week)],
         ]
         if self.readonly:
             groups = [[("查询积分明细", self._query_detail),
                        ("周度积分统计图", self._week_chart),
-                       ("低积分预警", self._low_score_warn)]]
+                       ("理由分布饼图", self._reason_pie),
+                       ("小组加减分对比图", self._group_bar),
+                       ("低积分预警", self._low_score_warn),
+                       ("查看操作日志", self._view_op_log)]]
         for i, group in enumerate(groups):
             if i:
                 menu.add_separator()

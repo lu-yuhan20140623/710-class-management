@@ -2,6 +2,7 @@
 课程表后台常驻服务（进程独立运行，不靠 GUI 存活）
 - 启动方式：pythonw.exe backend_service.py   （无控制台窗口）
 - 职责：每秒刷新课节状态，在进入倒计时窗口时唤起 overlay 全屏窗口，离开时关闭
+- 同时负责拉起桌面悬浮球进程并保活（悬浮球由此进程常驻，不随主界面退出）
 - 与设置面板 (main.py) 通过共享的 json 文件通信，零 IPC
 """
 
@@ -15,13 +16,16 @@ from datetime import datetime
 
 import schedule as sch
 import auth
+import score_records
 
 if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).parent.resolve()
     OVERLAY_SCRIPT = APP_DIR / "ClassSchedule_Overlay.exe"
+    BALL_SCRIPT = APP_DIR / "ClassSchedule_Ball.exe"
 else:
     APP_DIR = Path(__file__).parent.resolve()
     OVERLAY_SCRIPT = APP_DIR / "overlay_window.py"
+    BALL_SCRIPT = APP_DIR / "floating_ball_service.py"
 PID_FILE = APP_DIR / ".backend.pid"    # 自己的 PID 文件（可选）
 LOG_FILE = APP_DIR / "backend.log"     # 简易日志
 
@@ -75,6 +79,17 @@ def is_already_running() -> bool:
 overlay_pid: int | None = None
 
 
+def _child_cmd(script: Path) -> list:
+    """子进程启动命令：打包后直接跑 exe，开发模式用 pythonw 跑脚本。"""
+    if getattr(sys, "frozen", False):
+        return [str(script)]
+    import shutil
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    if not os.path.exists(pyw):
+        pyw = shutil.which("pythonw.exe") or shutil.which("pythonw") or sys.executable
+    return [pyw, str(script)]
+
+
 def spawn_overlay():
     """拉起 overlay_window.py。"""
     global overlay_pid
@@ -83,19 +98,9 @@ def spawn_overlay():
         return
 
     try:
-        if getattr(sys, "frozen", False):
-            cmd = [str(OVERLAY_SCRIPT)]
-            tag = "exe"
-        else:
-            import shutil
-            pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-            if not os.path.exists(pyw):
-                pyw = shutil.which("pythonw.exe") or shutil.which("pythonw") or sys.executable
-            cmd = [pyw, str(OVERLAY_SCRIPT)]
-            tag = pyw
-        proc = subprocess.Popen(cmd, cwd=str(APP_DIR))
+        proc = subprocess.Popen(_child_cmd(OVERLAY_SCRIPT), cwd=str(APP_DIR))
         overlay_pid = proc.pid
-        log(f"overlay 已启动  PID={overlay_pid}  {tag}")
+        log(f"overlay 已启动  PID={overlay_pid}")
     except Exception as e:
         log(f"spawn overlay 失败: {e}")
         overlay_pid = None
@@ -115,6 +120,47 @@ def kill_overlay():
     except Exception as e:
         log(f"kill overlay 异常: {e}")
     overlay_pid = None
+
+
+# ---------- 悬浮球进程管理 ----------
+# 与 overlay 不同：悬浮球要「保持常驻」，所以每轮 poll 一次，窗口被关掉几秒后自动拉起
+ball_proc: subprocess.Popen | None = None
+BALL_RESTART_GAP = 5.0
+_ball_last_try = 0.0
+
+
+def ensure_ball():
+    """悬浮球进程不在就拉起（最短间隔 5 秒，避免反复闪窗）。"""
+    global ball_proc, _ball_last_try
+    if ball_proc is not None and ball_proc.poll() is None:
+        return
+    if ball_proc is not None:
+        log(f"ball 进程已退出（code={ball_proc.returncode}），准备重启")
+        ball_proc = None
+    if time.time() - _ball_last_try < BALL_RESTART_GAP:
+        return
+    _ball_last_try = time.time()
+    try:
+        ball_proc = subprocess.Popen(_child_cmd(BALL_SCRIPT), cwd=str(APP_DIR))
+        log(f"ball 已启动  PID={ball_proc.pid}")
+    except Exception as e:
+        log(f"spawn ball 失败: {e}")
+
+
+def kill_ball():
+    """backend 退出时一并关掉悬浮球（没人保活就没有存在的意义）。"""
+    global ball_proc
+    if ball_proc is None:
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/PID", str(ball_proc.pid), "/T"],
+            capture_output=True, timeout=5,
+        )
+        log(f"ball 已终止  PID={ball_proc.pid}")
+    except Exception as e:
+        log(f"kill ball 异常: {e}")
+    ball_proc = None
 
 
 # ---------- 主循环 ----------
@@ -148,11 +194,9 @@ def main():
         log("警告：密码文件未能锁定，改密请求仍会由本进程处理")
 
     prev_state_key = None
-    prev_counting = False
-    prev_prebell = False
-    prev_in_class = False
-    prev_disabled = False
     prev_should_have = False
+    reset_check_gap = 20.0       # 每 20 秒检查一次是否到了卫生/积分重置时间
+    last_reset_check = 0.0
 
     try:
         while running:
@@ -162,6 +206,18 @@ def main():
             except Exception as e:
                 log(f"处理改密请求异常: {e}")
 
+            # 悬浮球常驻：不依赖上课状态，进程不在了就重新拉起
+            ensure_ball()
+
+            # 定时重置：卫生每天中午 12:00，积分每周一中午 12:00（重置前归档 XLSX）
+            if time.time() - last_reset_check >= reset_check_gap:
+                last_reset_check = time.time()
+                try:
+                    for msg in score_records.run_scheduled_resets():
+                        log(msg)
+                except Exception as e:
+                    log(f"定时重置异常: {e}")
+
             try:
                 info = sch.find_current_period()
             except Exception as e:
@@ -169,11 +225,11 @@ def main():
                 time.sleep(0.5)
                 continue
 
-            # 状态 key 变化 → 打条日志
+            # 状态 key 变化 → 打条日志（prev_state_key 只在本轮处理完后再更新）
             key = (info["state"], info.get("next_period"), info.get("disabled"))
-            if key != prev_state_key:
+            state_changed = key != prev_state_key
+            if state_changed:
                 log(f"state 变化: {prev_state_key} → {key}")
-                prev_state_key = key
 
             # === overlay 管理：纯状态驱动 ===
             # 只有 schedule 状态变化时才判断要不要 spawn/kill
@@ -184,7 +240,7 @@ def main():
             should_have = (now_counting or now_prebell) and not now_disabled
 
             # 状态没变就不动（避免每 0.5s 做无意义检查）
-            if key == prev_state_key and should_have == prev_should_have:
+            if not state_changed and should_have == prev_should_have:
                 time.sleep(0.5)
                 continue
 
@@ -199,13 +255,13 @@ def main():
             else:
                 kill_overlay()
 
+            prev_state_key = key
             prev_should_have = should_have
-            prev_counting = now_counting
-            prev_prebell = now_prebell
 
             time.sleep(0.5)
     finally:
         kill_overlay()
+        kill_ball()
         auth.unlock_password_file()
         clean_pid()
         log("backend 退出")

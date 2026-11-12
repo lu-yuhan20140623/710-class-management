@@ -3,7 +3,7 @@
 - 开机自启检查并修正注册表
 - 本地 BackendService 线程（刷新右侧面板 + 网格高亮，不拉 overlay）
 - ScheduleUI 主窗口：课程表网格 + 实时倒计时面板 + 时间调试工具
-- overlay_window.py 由 backend_service.py（独立常驻）负责拉起
+- overlay_window.py / 桌面悬浮球由 backend_service.py（独立常驻）负责拉起并保活
 - 关闭时若本次改过系统时间会自动恢复北京时间
 """
 
@@ -28,7 +28,7 @@ from tkinter import messagebox
 import autostart
 import time_debug
 from backend import BackendService
-from ui import ScheduleUI, _apply_ttk_theme
+from ui import ScheduleUI, _apply_ttk_theme, enable_high_dpi
 
 
 def _cli_report(text: str, error: bool = False):
@@ -80,7 +80,10 @@ def main():
     backend.start()
 
     # 3. Tk 主窗口
+    #    DPI 感知必须在创建窗口前设置，否则高分辨率屏上整体发虚
+    enable_high_dpi()
     root = tk.Tk()
+    enable_high_dpi(root)          # 按实际 DPI 调整字体缩放
     _apply_ttk_theme(root)
 
     ui = ScheduleUI(root, backend)
@@ -118,10 +121,21 @@ def main():
 
     root.protocol("WM_DELETE_WINDOW", on_close)
 
-    # 5. 设置面板快捷入口（main.py 简化版）作为可选入口
-    if len(sys.argv) >= 2 and sys.argv[1] == "--settings-only":
-        # 用用户偏好的简化设置面板 —— 暂不实现，主界面已包含完整功能
-        pass
+    # 6. 当天第一次启动：全屏展示卫生（周一上午同时展示上周积分）；并补做错过的定时重置
+    def _show_hygiene_report():
+        try:
+            import score_records
+            for msg in score_records.run_scheduled_resets():
+                print(f"[课程表] {msg}")
+        except Exception as e:
+            print(f"[课程表] 定时重置检查失败：{e}")
+        try:
+            from hygiene import maybe_show_first_boot_report
+            maybe_show_first_boot_report(root)
+        except Exception as e:
+            print(f"[课程表] 卫生扣分日报展示失败：{e}")
+
+    root.after(600, _show_hygiene_report)
 
     print("[课程表] 已启动 · 七年级10班 · 2026-2027 第一学期")
     try:

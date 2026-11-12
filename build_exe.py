@@ -4,11 +4,12 @@
     ClassSchedule.exe            启动器（加载 app/main.py，无控制台）
     ClassSchedule_Backend.exe    启动器（加载 app/backend_service.py，无控制台）
     ClassSchedule_Overlay.exe    启动器（加载 app/overlay_window.py，无控制台）
+    ClassSchedule_Ball.exe       启动器（加载 app/floating_ball_service.py，无控制台）
     app/*.py                     业务代码，补丁可按文件替换
     version.json                 版本号 + 每个文件 sha256 + 整包哈希
 
 业务代码不打进 exe，因此修改代码后只需替换 app/ 下对应文件即可。
-三个 exe 均为窗口模式（--noconsole），启动器把 print 重定向到 logs/*.log。
+四个 exe 均为窗口模式（--noconsole），启动器把 print 重定向到 logs/*.log。
 """
 import ast
 import hashlib
@@ -38,9 +39,22 @@ APP_FILES = [
     "autostart.py",
     "time_debug.py",
     "student_score.py",
+    "hygiene.py",
+    "score_records.py",
+    "charts.py",
+    "floating_ball.py",
+    "floating_ball_service.py",
+    "ball_bridge.py",
     "version.py",
     "version_manager.py",
     "updater.py",
+]
+
+# 随包发布的默认名单（班级 / 学生 / 分组），安装后无需重新录入
+DATA_FILES = [
+    "class_data.txt",
+    "student_data.txt",
+    "group_data.txt",
 ]
 
 # (exe 名, 启动器, 是否隐藏控制台) —— 全部窗口模式，不弹黑色控制台
@@ -48,6 +62,7 @@ SPECS = [
     ("ClassSchedule", "launcher_main.py", True),
     ("ClassSchedule_Backend", "launcher_backend.py", True),
     ("ClassSchedule_Overlay", "launcher_overlay.py", True),
+    ("ClassSchedule_Ball", "launcher_ball.py", True),
 ]
 
 LAUNCHERS = [s[1] for s in SPECS]
@@ -91,6 +106,9 @@ def collect_hidden_imports() -> list:
     mods |= {
         "tkinter", "tkinter.ttk", "tkinter.messagebox",
         "tkinter.simpledialog", "tkinter.filedialog",
+        # 归档 XLSX 用（不会自动被 PyInstaller 完整收集）
+        "openpyxl", "openpyxl.workbook", "openpyxl.worksheet",
+        "openpyxl.styles", "openpyxl.utils", "et_xmlfile",
     }
     return sorted(mods)
 
@@ -108,6 +126,7 @@ def build_exe(exe_name: str, entry: str, noconsole: bool, hidden: list):
         f"--specpath={BUILD}",
         "--noconfirm",
         "--collect-submodules=tkinter",
+        "--collect-submodules=openpyxl",
     ]
     if noconsole:
         cmd.append("--noconsole")
@@ -147,6 +166,38 @@ def main():
     app_dir.mkdir(parents=True)
     for name in APP_FILES:
         shutil.copy2(ROOT / name, app_dir / name)
+
+    # 默认名单：目标目录已有数据时不覆盖，避免升级冲掉真实积分
+    for name in DATA_FILES:
+        src = ROOT / name
+        if not src.exists():
+            continue
+        dst = DIST / name
+        if dst.exists():
+            print(f"  保留已有数据 {name}")
+            continue
+        if name in ("group_data.txt", "student_data.txt"):
+            # 默认名单只带结构，积分清零，不带开发时的测试记录
+            try:
+                data = json.loads(src.read_text(encoding="utf-8"))
+                if name == "group_data.txt":
+                    for groups in data.values():
+                        for group in groups.values():
+                            group["total_score"] = 0
+                            group["record"] = []
+                else:
+                    for students in data.values():
+                        for stu in students.values():
+                            stu["records"] = []
+                            stu["total_score"] = 0
+                dst.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+                print(f"  预置默认名单 {name}（积分已归零）")
+                continue
+            except Exception as exc:
+                print(f"  [警告] 处理 {name} 失败，改为原样复制：{exc}")
+        shutil.copy2(src, dst)
+        print(f"  预置默认名单 {name}")
 
     sys.path.insert(0, str(ROOT))
     from version import VERSION

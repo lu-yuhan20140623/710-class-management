@@ -3,11 +3,12 @@
 ; 生成 Setup.exe 安装程序
 ; ============================================================
 #define MyAppName "课程表"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "七年级10班"
 #define MyAppExeName "ClassSchedule.exe"
 #define MyBackendName "ClassSchedule_Backend.exe"
 #define MyOverlayName "ClassSchedule_Overlay.exe"
+#define MyBallName "ClassSchedule_Ball.exe"
 #define MyAppRegName "ClassSchedule"
 
 [Setup]
@@ -41,13 +42,18 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 ;   Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Files]
-; 三个主 EXE（dist 目录里打出来的）
+; 四个主 EXE（dist 目录里打出来的）
 Source: "dist\{#MyAppExeName}";         DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyBackendName}";        DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyOverlayName}";        DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\{#MyBallName}";           DestDir: "{app}"; Flags: ignoreversion
 ; 业务代码与版本清单（补丁按 app/ 下的文件替换）
 Source: "dist\app\*.py";                DestDir: "{app}\app"; Flags: ignoreversion
 Source: "dist\version.json";            DestDir: "{app}"; Flags: ignoreversion
+; 默认名单：仅在目标文件不存在时写入，升级/重装不会覆盖真实积分
+Source: "dist\class_data.txt";          DestDir: "{app}"; Flags: onlyifdoesntexist
+Source: "dist\student_data.txt";        DestDir: "{app}"; Flags: onlyifdoesntexist
+Source: "dist\group_data.txt";          DestDir: "{app}"; Flags: onlyifdoesntexist
 
 [Icons]
 ; 开始菜单 → 主程序
@@ -76,16 +82,30 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+// 安装/升级前先停掉正在运行的四个进程，否则 exe 被占用无法覆盖
+function InitializeSetup: Boolean;
+var
+  ResultCode: Integer;
+begin
+  Exec('taskkill.exe', '/F /IM ClassSchedule.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM ClassSchedule_Backend.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM ClassSchedule_Overlay.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM ClassSchedule_Ball.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(600);
+  Result := True;
+end;
+
 // 卸载前先杀掉后台进程，否则 exe 被锁删不掉
 function InitializeUninstall: Boolean;
 var
   ResultCode: Integer;
 begin
   Result := True;
-  // 停掉可能在跑的三个 EXE
+  // 停掉可能在跑的四个 EXE
   Exec('taskkill.exe', '/F /IM ClassSchedule.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM ClassSchedule_Backend.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec('taskkill.exe', '/F /IM ClassSchedule_Overlay.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('taskkill.exe', '/F /IM ClassSchedule_Ball.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(500);
 end;
 

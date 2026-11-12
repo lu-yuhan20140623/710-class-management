@@ -123,8 +123,20 @@ def change_password(old_password: str, new_password: str) -> tuple[bool, str]:
         "time": time.time(),
     }
     _ensure_backend()
+    # 后台起不来就直接返回，不要在这里空等 6 秒
+    if not _backend_ready():
+        return False, "后台服务未启动，密钥未修改"
     ok, msg = _send_request(request)
     return (True, "密钥已更新") if ok else (False, msg)
+
+
+def _backend_ready() -> bool:
+    """确认后台服务确实在运行（避免无意义地等响应文件）。"""
+    try:
+        import autostart
+        return bool(autostart.is_backend_running())
+    except Exception:
+        return False
 
 
 def _ensure_backend():

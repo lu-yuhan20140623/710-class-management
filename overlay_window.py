@@ -10,6 +10,7 @@ import tkinter as tk
 from datetime import datetime
 
 import schedule as sch
+from ui import enable_high_dpi, dpi_scale, work_area
 
 BG = "#1a1a2e"
 BG_CARD = "#16213e"
@@ -22,11 +23,21 @@ FG_IN_CLASS = "#66cc88"
 
 class CountdownWindow:
     def __init__(self):
+        # 进程级 DPI 感知必须在创建窗口之前设置，否则高分屏上整窗发虚
+        enable_high_dpi()
         self.root = tk.Tk()
+        enable_high_dpi(self.root)
         self.root.title("课程表 · 倒计时")
         self.root.configure(bg=BG)
-        self.root.geometry("520x420")
-        self.root.minsize(380, 320)
+
+        # 窗口尺寸随 DPI 放大，并钳制到任务栏之外的可用区域
+        k = dpi_scale(self.root)
+        wl, wt, wr, wb = work_area(self.root)
+        w = min(int(520 * k), int((wr - wl) * 0.95))
+        h = min(int(420 * k), int((wb - wt) * 0.92))
+        self.root.geometry(f"{w}x{h}")
+        self.root.minsize(min(int(380 * k), w), min(int(320 * k), h))
+        wrap = int(460 * k)
 
         # 关闭即退出
         self.root.protocol("WM_DELETE_WINDOW", self._close)
@@ -54,7 +65,7 @@ class CountdownWindow:
 
         # 提示文字
         self.lbl_hint = tk.Label(mid, text="", font=("Microsoft YaHei UI", 14),
-                                  bg=BG, fg=FG_LABEL, wraplength=460, justify=tk.CENTER)
+                                  bg=BG, fg=FG_LABEL, wraplength=wrap, justify=tk.CENTER)
         self.lbl_hint.pack(pady=(8, 4))
 
         # 底部状态卡
@@ -112,8 +123,14 @@ class CountdownWindow:
         # ========== 显示 ==========
         next_period = info.get("next_period") or info.get("current_period") or "?"
         next_subject = info.get("next_subject") or sch.get_subject(day, next_period) or "?"
+        # 正课显示「第N节」，午间小练 / 晚辅直接显示名称
+        next_name = info.get("next_name") or (
+            f"第{next_period}节" if isinstance(next_period, int) else "?")
 
-        self.lbl_title.config(text=f"{weekday} · 第{next_period}节 · {next_subject}")
+        title = f"{weekday} · {next_name}"
+        if next_subject and next_subject != next_name:
+            title += f" · {next_subject}"
+        self.lbl_title.config(text=title)
 
         if is_prebell:
             # 预备铃阶段：显示科目 + 提示

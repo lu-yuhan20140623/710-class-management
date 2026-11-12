@@ -38,6 +38,21 @@ PERIODS = {
 REMIND_AHEAD_MINUTES = 4
 PREBELL_AHEAD_MINUTES = 2
 
+# ---------- 午间小练 / 晚辅 ----------
+# 12:25–12:50 小练：周一、二、五数学，周三英语，周四语文
+PRACTICE_START = time(12, 25)
+PRACTICE_END = time(12, 50)
+PRACTICE_SUBJECTS = {0: "数学", 1: "数学", 2: "英语", 3: "语文", 4: "数学"}
+PRACTICE_NAME = "午间小练"
+
+# 17:10–18:10 晚辅（第 7 节 16:30 只是最后一节正课）
+EVENING_START = time(17, 10)
+EVENING_END = time(18, 10)
+EVENING_NAME = "晚辅"
+
+# 真正放学时间
+SCHOOL_END = EVENING_END
+
 # ---------- 课程表 ----------
 DEFAULT_SCHEDULE = {
     0: {1: "语文", 2: "数学", 3: "生物", 4: "英语", 5: "体育", 6: "道法", 7: "地理"},
@@ -186,9 +201,30 @@ def get_day_index(dt: datetime = None) -> int:
     return wd if wd <= 4 else -1
 
 
+def day_slots(day: int) -> list:
+    """当天所有需要提醒的时间块：正课 + 午间小练 + 晚辅。
+
+    每项：{"key", "name", "subject", "start", "end", "kind"}
+    key 为正课时是节次 int，小练/晚辅为字符串。
+    """
+    slots = []
+    for p, (s, e) in PERIODS.items():
+        slots.append({"key": p, "name": f"第{p}节", "subject": get_subject(day, p),
+                      "start": s, "end": e, "kind": "period"})
+    slots.append({"key": "practice", "name": PRACTICE_NAME,
+                  "subject": PRACTICE_SUBJECTS.get(day, "小练"),
+                  "start": PRACTICE_START, "end": PRACTICE_END, "kind": "practice"})
+    slots.append({"key": "evening", "name": EVENING_NAME, "subject": EVENING_NAME,
+                  "start": EVENING_START, "end": EVENING_END, "kind": "evening"})
+    slots.sort(key=lambda x: x["start"])
+    return slots
+
+
 def find_current_period(dt: datetime = None):
     """
     根据当前时间判断当前处于哪个课节阶段。
+    正课、午间小练（12:25–12:50）、晚辅（17:10–18:10）统一按时间块处理，
+    三者都会触发倒计时 / 预备铃窗口。
     """
     dt = dt or now()
     day = get_day_index(dt)
@@ -200,16 +236,23 @@ def find_current_period(dt: datetime = None):
     result = {
         "state": "weekend" if day < 0 else "after_school",
         "current_period": None,
+        "current_name": "",
+        "current_subject": "",
+        "current_start": None,
+        "current_end": None,
         "next_period": None,
+        "next_name": "",
         "day": day,
         "seconds_to_next": 0,
         "next_subject": "",
         "next_start": None,
+        "next_end": None,
         "is_counting": False,
         "is_prebell": False,
         "seconds_to_prebell": 0,
         "disabled": disabled,
         "disabled_note": disabled_note,
+        "school_end": SCHOOL_END,
     }
 
     if disabled:
@@ -219,24 +262,37 @@ def find_current_period(dt: datetime = None):
     if day < 0:
         return result
 
-    today_periods = []
-    for p, (s, e) in PERIODS.items():
-        start_dt = datetime.combine(base_date, s)
-        end_dt = datetime.combine(base_date, e)
-        today_periods.append((p, start_dt, end_dt))
+    slots = day_slots(day)
 
-    for idx, (p, start_dt, end_dt) in enumerate(today_periods):
+    for idx, slot in enumerate(slots):
+        start_dt = datetime.combine(base_date, slot["start"])
+        end_dt = datetime.combine(base_date, slot["end"])
+
         if start_dt <= dt < end_dt:
             result["state"] = "in_class"
-            result["current_period"] = p
+            result["current_period"] = slot["key"]
+            result["current_name"] = slot["name"]
+            result["current_subject"] = slot["subject"]
+            result["current_start"] = slot["start"]
+            result["current_end"] = slot["end"]
+            # 当前时段之后的下一个时间块（右侧面板显示「下一节」）
+            if idx + 1 < len(slots):
+                nxt = slots[idx + 1]
+                result["next_period"] = nxt["key"]
+                result["next_name"] = nxt["name"]
+                result["next_subject"] = nxt["subject"]
+                result["next_start"] = datetime.combine(base_date, nxt["start"])
+                result["next_end"] = datetime.combine(base_date, nxt["end"])
             break
 
         if dt < start_dt:
             result["state"] = "before_class" if idx == 0 else "between_class"
-            result["next_period"] = p
+            result["next_period"] = slot["key"]
+            result["next_name"] = slot["name"]
             result["next_start"] = start_dt
+            result["next_end"] = datetime.combine(base_date, slot["end"])
             result["seconds_to_next"] = int((start_dt - dt).total_seconds())
-            result["next_subject"] = get_subject(day, p)
+            result["next_subject"] = slot["subject"]
 
             start_remind = start_dt - timedelta(minutes=REMIND_AHEAD_MINUTES)
             prebell_time = start_dt - timedelta(minutes=PREBELL_AHEAD_MINUTES)
