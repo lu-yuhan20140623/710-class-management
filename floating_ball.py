@@ -2,7 +2,8 @@
 桌面悬浮球（由后台常驻进程负责，Always on Top）
 - 独立进程运行（floating_ball_service.py / ClassSchedule_Ball.exe），由 backend_service.py 拉起并保活
 - 外观与交互保持原来的方式：无边框圆形、圆外透明、可拖动、右键换肤
-- 单击：弹密钥 → 打开学生积分；右键：换肤 / 打开积分 / 只读查看
+- 单击：弹密钥 → 打开学生积分；右键：换肤 / 打开积分 / 只读查看 / 隐藏
+- 隐藏后进程仍常驻，由主界面「更多功能 → 显示悬浮球」重新唤出
 - 位置按「任务栏之外的可用区域」计算并记忆拖动位置
 """
 
@@ -69,6 +70,7 @@ class FloatingBall:
 
         self._drag = None
         saved = _load_settings().get("floating_ball") or {}
+        self._hidden = bool(saved.get("hidden", False))
         try:
             self._skin = int(saved.get("skin", 0)) % len(SKINS)
         except (TypeError, ValueError):
@@ -95,6 +97,10 @@ class FloatingBall:
         self._draw()
         self._bind()
         self._pin_topmost()
+        if self._hidden:
+            # 上次隐藏过，进程重启后依旧不显示，等主界面来唤
+            self.win.withdraw()
+            self._watch_show_request()
 
     # ---------- 环境 ----------
     def _dpi(self) -> float:
@@ -196,6 +202,8 @@ class FloatingBall:
         menu.add_separator()
         menu.add_command(label="打开学生积分（需密钥）", command=self.open_score)
         menu.add_command(label="只读查看", command=lambda: self.open_score(True))
+        menu.add_separator()
+        menu.add_command(label="隐藏悬浮球", command=self.hide)
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -206,7 +214,53 @@ class FloatingBall:
         try:
             _save_settings({"floating_ball": {
                 "x": self.win.winfo_x(), "y": self.win.winfo_y(),
-                "skin": self._skin}})
+                "skin": self._skin, "hidden": self._hidden}})
+        except tk.TclError:
+            pass
+
+    def hide(self):
+        """隐藏悬浮球：窗口收起，进程继续常驻，等主界面「显示悬浮球」唤回。"""
+        if self._hidden:
+            return
+        self._hidden = True
+        try:
+            # 丢弃之前遗留的显示请求，避免刚隐藏就被它弹回来
+            import ball_bridge
+            ball_bridge.take_show_ball_request()
+        except Exception:
+            pass
+        self._save_position()
+        try:
+            self.win.withdraw()
+        except tk.TclError:
+            pass
+        self._watch_show_request()
+
+    def show(self):
+        if not self._hidden:
+            return
+        self._hidden = False
+        self._save_position()
+        try:
+            self.win.deiconify()
+            self._pin_topmost()
+            self.win.lift()
+        except tk.TclError:
+            pass
+
+    def _watch_show_request(self):
+        """隐藏期间每秒看一次主界面有没有发来显示请求。"""
+        if not self._hidden:
+            return
+        try:
+            import ball_bridge
+            if ball_bridge.take_show_ball_request():
+                self.show()
+                return
+        except Exception:
+            pass
+        try:
+            self.root.after(1000, self._watch_show_request)
         except tk.TclError:
             pass
 

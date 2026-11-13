@@ -48,9 +48,8 @@ def is_already_running() -> bool:
     try:
         if not PID_FILE.exists():
             return False
-        pid = int(PID_FILE.read_text().strip())
-        os.kill(pid, 0)
-        return True
+        from ball_bridge import pid_alive
+        return pid_alive(int(PID_FILE.read_text().strip()))
     except Exception:
         return False
 

@@ -696,9 +696,18 @@ class ScheduleUI:
             self._set_status(f"打开 overlay 失败：{e}")
 
     def _show_floating_ball(self):
-        """立即显示桌面悬浮球（平时由后台服务拉起并保活）。"""
+        """显示桌面悬浮球：已在运行（含被隐藏）就通知它重新出现，否则拉起进程。"""
         import subprocess, sys
         try:
+            import ball_bridge
+            if ball_bridge.request_show_ball():
+                self._set_status("已通知悬浮球显示")
+                return
+            # 进程没在跑时先留一个显示请求，新进程启动后不会被上次的隐藏状态挡住
+            try:
+                ball_bridge.SHOW_REQUEST_FILE.write_text("show", encoding="utf-8")
+            except OSError:
+                pass
             if getattr(sys, "frozen", False):
                 exe = Path(sys.executable).parent / "ClassSchedule_Ball.exe"
                 if not exe.exists():

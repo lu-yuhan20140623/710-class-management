@@ -16,6 +16,8 @@ else:
     APP_DIR = Path(__file__).parent.resolve()
 
 REQUEST_FILE = APP_DIR / ".open_score.request"
+SHOW_REQUEST_FILE = APP_DIR / ".show_ball.request"
+BALL_PID_FILE = APP_DIR / ".ball.pid"
 MAIN_TITLE = "课程表 · 七年级10班"
 
 
@@ -57,6 +59,70 @@ def take_open_score_request() -> str:
     except OSError:
         pass
     return "readonly" if mode == "readonly" else "edit"
+
+
+def pid_alive(pid: int) -> bool:
+    """判断进程是否还活着（不发送信号，不会误杀）。"""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    try:
+        kernel32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == 259      # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
+def ball_pid() -> int:
+    try:
+        return int(BALL_PID_FILE.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def ball_running() -> bool:
+    """悬浮球进程是否在跑（隐藏状态也算在跑）。"""
+    return pid_alive(ball_pid())
+
+
+def request_show_ball() -> bool:
+    """请已隐藏的悬浮球重新显示；悬浮球进程没在跑时返回 False。"""
+    if not ball_running():
+        return False
+    try:
+        SHOW_REQUEST_FILE.write_text("show", encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def take_show_ball_request() -> bool:
+    """悬浮球调用：取走并清除显示请求。"""
+    try:
+        if not SHOW_REQUEST_FILE.exists():
+            return False
+    except OSError:
+        return False
+    try:
+        SHOW_REQUEST_FILE.unlink()
+    except OSError:
+        pass
+    return True
 
 
 def activate_main_window() -> bool:

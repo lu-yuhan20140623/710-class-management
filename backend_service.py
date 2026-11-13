@@ -63,20 +63,19 @@ def is_already_running() -> bool:
     try:
         if not PID_FILE.exists():
             return False
-        pid = int(PID_FILE.read_text().strip())
-        # Windows 下 os.kill(pid, 0) 也能用来探活
-        os.kill(pid, 0)
-        return True
-    except (ProcessLookupError, ValueError, PermissionError):
+        from ball_bridge import pid_alive
+        return pid_alive(int(PID_FILE.read_text().strip()))
+    except (ValueError, OSError):
         return False
     except Exception:
         return False
 
 
 # ---------- Overlay 进程管理 ----------
-# 策略：spawn 后相信它活着（记 PID），只有 schedule 状态变化才 kill
-# 不做进程探活（tasklist 在时间跳退时可能卡住/返回假阴性）
-overlay_pid: int | None = None
+# 策略：上课/预备铃期间常驻，每轮 poll 一次；窗口被误关后 5 秒内自动重新拉起
+overlay_proc: subprocess.Popen | None = None
+OVERLAY_RESTART_GAP = 5.0
+_overlay_last_try = 0.0
 
 
 def _child_cmd(script: Path) -> list:
@@ -90,36 +89,39 @@ def _child_cmd(script: Path) -> list:
     return [pyw, str(script)]
 
 
-def spawn_overlay():
-    """拉起 overlay_window.py。"""
-    global overlay_pid
-    if overlay_pid is not None:
-        log(f"已有 overlay_pid={overlay_pid}，跳过 spawn（状态变化后会先 kill 再 spawn）")
+def ensure_overlay():
+    """倒计时窗口探活：进程不在就重新拉起（最短间隔 5 秒，避免反复闪窗）。"""
+    global overlay_proc, _overlay_last_try
+    if overlay_proc is not None and overlay_proc.poll() is None:
         return
-
+    if overlay_proc is not None:
+        log(f"overlay 进程已退出（code={overlay_proc.returncode}），准备重启")
+        overlay_proc = None
+    if time.time() - _overlay_last_try < OVERLAY_RESTART_GAP:
+        return
+    _overlay_last_try = time.time()
     try:
-        proc = subprocess.Popen(_child_cmd(OVERLAY_SCRIPT), cwd=str(APP_DIR))
-        overlay_pid = proc.pid
-        log(f"overlay 已启动  PID={overlay_pid}")
+        overlay_proc = subprocess.Popen(_child_cmd(OVERLAY_SCRIPT), cwd=str(APP_DIR))
+        log(f"overlay 已启动  PID={overlay_proc.pid}")
     except Exception as e:
         log(f"spawn overlay 失败: {e}")
-        overlay_pid = None
+        overlay_proc = None
 
 
 def kill_overlay():
     """关掉 overlay 进程。用 taskkill /F（最可靠）。"""
-    global overlay_pid
-    if overlay_pid is None:
+    global overlay_proc
+    if overlay_proc is None:
         return
     try:
         subprocess.run(
-            ["taskkill", "/F", "/PID", str(overlay_pid), "/T"],
+            ["taskkill", "/F", "/PID", str(overlay_proc.pid), "/T"],
             capture_output=True, timeout=5,
         )
-        log(f"overlay 已终止  PID={overlay_pid}")
+        log(f"overlay 已终止  PID={overlay_proc.pid}")
     except Exception as e:
         log(f"kill overlay 异常: {e}")
-    overlay_pid = None
+    overlay_proc = None
 
 
 # ---------- 悬浮球进程管理 ----------
@@ -231,32 +233,25 @@ def main():
             if state_changed:
                 log(f"state 变化: {prev_state_key} → {key}")
 
-            # === overlay 管理：纯状态驱动 ===
-            # 只有 schedule 状态变化时才判断要不要 spawn/kill
-            # 平时不做进程探活（Windows 上探活容易卡住/误判）
+            # === overlay 管理：状态驱动 + 探活 ===
+            # 进入上课/预备铃时拉起，离开时关闭；运行期间每轮 poll 一次，
+            # 被误关（进程退出）后 5 秒内自动重新拉起
             now_counting = info.get("is_counting", False)
             now_prebell = info.get("is_prebell", False)
             now_disabled = info.get("disabled", False)
             should_have = (now_counting or now_prebell) and not now_disabled
 
-            # 状态没变就不动（避免每 0.5s 做无意义检查）
-            if not state_changed and should_have == prev_should_have:
-                time.sleep(0.5)
-                continue
-
-            log(f"[反应] should_have={should_have}  prev={prev_should_have} "
-                f"overlay_pid={overlay_pid}  counting={now_counting} prebell={now_prebell}")
-
-            if now_disabled:
-                kill_overlay()
+            if state_changed:
+                log(f"[反应] should_have={should_have}  prev={prev_should_have} "
+                    f"counting={now_counting} prebell={now_prebell}")
+                if should_have:
+                    ensure_overlay()
+                else:
+                    kill_overlay()
+                prev_state_key = key
+                prev_should_have = should_have
             elif should_have:
-                if overlay_pid is None:
-                    spawn_overlay()
-            else:
-                kill_overlay()
-
-            prev_state_key = key
-            prev_should_have = should_have
+                ensure_overlay()      # 窗口被误关时自动拉起
 
             time.sleep(0.5)
     finally:

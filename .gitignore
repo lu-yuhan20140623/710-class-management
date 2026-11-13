@@ -149,6 +149,8 @@ weekly_score_archive.txt
 hygiene_data.txt
 archive_state.json
 .archive.lock
+积分记录.xlsx
+卫生记录.xlsx
 boot_state.json
 settings.json
 overrides.json
