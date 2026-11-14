@@ -45,6 +45,8 @@ APP_FILES = [
     "floating_ball.py",
     "floating_ball_service.py",
     "ball_bridge.py",
+    "plugin_events.py",
+    "plugin_api.py",
     "version.py",
     "version_manager.py",
     "updater.py",
@@ -109,6 +111,8 @@ def collect_hidden_imports() -> list:
         # 归档 XLSX 用（不会自动被 PyInstaller 完整收集）
         "openpyxl", "openpyxl.workbook", "openpyxl.worksheet",
         "openpyxl.styles", "openpyxl.utils", "et_xmlfile",
+        # 悬浮球图片皮肤用（plugins/assets/*.png 裁圆）
+        "PIL", "PIL.Image", "PIL.ImageDraw", "PIL.ImageOps", "PIL.ImageTk",
     }
     return sorted(mods)
 
@@ -166,6 +170,16 @@ def main():
     app_dir.mkdir(parents=True)
     for name in APP_FILES:
         shutil.copy2(ROOT / name, app_dir / name)
+
+    # 插件目录：保持目录结构发布（运行期自动扫描，不进 version.json 补丁清单）
+    plugin_src = ROOT / "plugins"
+    if plugin_src.is_dir():
+        plugin_dst = DIST / "plugins"
+        if plugin_dst.exists():
+            shutil.rmtree(plugin_dst)
+        shutil.copytree(plugin_src, plugin_dst,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "data"))
+        print(f"  发布插件：{len(list(plugin_dst.rglob('*.py')))} 个文件")
 
     # 默认名单：目标目录已有数据时不覆盖，避免升级冲掉真实积分
     for name in DATA_FILES:

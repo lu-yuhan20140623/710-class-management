@@ -75,6 +75,16 @@ def main():
     ball = FloatingBall(root)
     root._ball = ball
 
+    # 插件：悬浮球进程也加载一遍，插件注册的球菜单/图片皮肤/单击动作在这里生效
+    try:
+        import plugin_api
+        plugin_api.init(app=root, ball=ball)
+        plugin_api.load_all()
+        log("插件加载完成：" + plugin_api.plugin_summary().replace("\n", " | "))
+    except Exception:
+        import traceback
+        log("插件加载失败：" + traceback.format_exc())
+
     def on_close():
         log("悬浮球窗口被关闭，进程退出（后台服务会自动重新拉起）")
         try:

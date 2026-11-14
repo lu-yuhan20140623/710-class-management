@@ -160,6 +160,8 @@ disabled_ranges.json
 .pwd_request.json
 .pwd_response.json
 .open_score.request
+.show_ball.request
+plugins_data/
 backend.log
 overlay_stdout.log
 overlay_stderr.log

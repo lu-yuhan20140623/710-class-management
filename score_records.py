@@ -200,6 +200,20 @@ def add_point_records(students: dict, groups: dict, cls: str,
         count += 1
     if count:
         sync_group_totals(students, groups)
+        payload = {"cls": cls, "sids": list(sids),
+                   "delta": int(delta), "reason": reason}
+        # 旧事件总线（plugin_events）与新插件框架各发一份，两边插件都能收到
+        try:
+            import plugin_events
+            plugin_events.emit("points_added", **payload)
+        except Exception:
+            pass
+        try:
+            import plugin_api
+            plugin_api.emit("points_added", payload)
+            plugin_api.emit("score_changed", payload)
+        except Exception:
+            pass
     return count
 
 

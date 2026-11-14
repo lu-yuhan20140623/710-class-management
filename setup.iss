@@ -3,7 +3,7 @@
 ; 生成 Setup.exe 安装程序
 ; ============================================================
 #define MyAppName "课程表"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "七年级10班"
 #define MyAppExeName "ClassSchedule.exe"
 #define MyBackendName "ClassSchedule_Backend.exe"
@@ -49,6 +49,8 @@ Source: "dist\{#MyOverlayName}";        DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyBallName}";           DestDir: "{app}"; Flags: ignoreversion
 ; 业务代码与版本清单（补丁按 app/ 下的文件替换）
 Source: "dist\app\*.py";                DestDir: "{app}\app"; Flags: ignoreversion
+; 插件目录：运行期自动扫描，可与第三方插件共存
+Source: "dist\plugins\*";               DestDir: "{app}\plugins"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dist\version.json";            DestDir: "{app}"; Flags: ignoreversion
 ; 默认名单：仅在目标文件不存在时写入，升级/重装不会覆盖真实积分
 Source: "dist\class_data.txt";          DestDir: "{app}"; Flags: onlyifdoesntexist

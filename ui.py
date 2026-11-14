@@ -151,6 +151,19 @@ class ScheduleUI:
         # 开机自启状态检查
         self._refresh_autostart_status()
 
+        # 插件：自动扫描 plugins/ 目录，单个插件出错不影响主程序
+        self.plugins = None
+        try:
+            import plugin_api
+            self.root._schedule_ui = self          # 供插件框架定位宿主界面
+            self.plugins = plugin_api.init(app=self.root)
+            self.plugins.load_all()
+            summary = plugin_api.plugin_summary()
+            print("[插件]" + summary.replace("\n", "\n[插件]"))
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
         # 启动主循环 tick
         self._tick()
 
@@ -167,6 +180,9 @@ class ScheduleUI:
         self.clock_label = tk.Label(top, text="", font=("Consolas", 12),
                                     bg=BG_MAIN, fg=FG_DIM)
         self.clock_label.pack(side=tk.RIGHT)
+        # 插件注册的顶部按钮放在时钟左侧
+        self._plugin_btn_bar = tk.Frame(top, bg=BG_MAIN)
+        self._plugin_btn_bar.pack(side=tk.RIGHT, padx=(10, 6))
 
         # 主体：左课程表 + 右侧面板
         body = tk.Frame(self.root, bg=BG_MAIN)
@@ -615,6 +631,18 @@ class ScheduleUI:
         menu.add_command(label="⏱  测试倒计时窗口", command=self._toggle_overlay_manual)
         menu.add_command(label="◉  显示悬浮球", command=self._show_floating_ball)
         menu.add_command(label="⚙  调试工具", command=self._open_debug_tool)
+
+        entries = []
+        try:
+            import plugin_api
+            entries = plugin_api.main_menu_items()
+        except Exception:
+            entries = []
+        if entries:
+            menu.add_separator()
+            for label, callback in entries:
+                menu.add_command(label=label,
+                                 command=lambda cb=callback: self._run_plugin_entry(cb))
         menu.add_separator()
         menu.add_command(label="ℹ  版本信息", command=self._show_version_info)
 
@@ -623,6 +651,30 @@ class ScheduleUI:
             menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
         finally:
             menu.grab_release()
+
+    def _run_plugin_entry(self, callback):
+        """执行插件注册的菜单项，异常只提示不中断主程序。"""
+        try:
+            callback()
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("插件出错", str(exc), parent=self.root)
+
+    def refresh_plugin_top_buttons(self, items):
+        """插件注册的顶部按钮：重建按钮区，保持与主界面同一套配色。"""
+        bar = getattr(self, "_plugin_btn_bar", None)
+        if bar is None:
+            return
+        for child in bar.winfo_children():
+            child.destroy()
+        for text, callback in items:
+            btn = tk.Button(
+                bar, text=text, command=callback,
+                font=("Microsoft YaHei UI", 9), bg=BG_CELL, fg=FG_TEXT,
+                activebackground=BG_CELL_ALT, activeforeground=FG_TEXT,
+                relief=tk.FLAT, padx=10, pady=2, cursor="hand2", bd=0)
+            btn.pack(side=tk.LEFT, padx=4, pady=2)
 
     def _open_student_score(self):
         """学生积分（嵌入模块）：进入需密钥，窗口与主界面同一深色主题。"""
@@ -655,7 +707,9 @@ class ScheduleUI:
             win.destroy()          # 只读 → 编辑：重建窗口，重新走密钥校验
             self.root._score_window = None
         from student_score import StudentScoreWindow
-        self.root._score_window = StudentScoreWindow(self.root, readonly=readonly).win
+        ctrl = StudentScoreWindow(self.root, readonly=readonly)
+        ctrl.win._controller = ctrl          # 供插件框架通过 ScoreWindowAPI 访问
+        self.root._score_window = ctrl.win
 
     def _show_version_info(self):
         """显示版本号、整包哈希与代码校验结果，用于判断本机安装版本。"""

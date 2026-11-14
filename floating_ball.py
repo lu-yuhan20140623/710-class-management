@@ -75,6 +75,12 @@ class FloatingBall:
             self._skin = int(saved.get("skin", 0)) % len(SKINS)
         except (TypeError, ValueError):
             self._skin = 0
+        # 插件注册的图片皮肤 / 球菜单 / 单击动作
+        self._extra_skins = []          # [{"name", "path", "order"}]
+        self._plugin_menus = []         # [{"label", "callback", "order"}]
+        self._click_action = None
+        self._photo = None
+        self._skin_pref = str(saved.get("skin_name") or "")
 
         self.win = tk.Toplevel(root)
         self.win.overrideredirect(True)
@@ -140,7 +146,17 @@ class FloatingBall:
         return pts
 
     def _draw(self):
-        sk = SKINS[self._skin]
+        items = self._skin_items()
+        if not items:
+            return
+        self._skin %= len(items)
+        item = items[self._skin]
+        if item["kind"] == "image" and self._draw_image(item["path"]):
+            return
+        if item["kind"] == "image":
+            # 图片皮肤不可用（缺 Pillow / 文件损坏）时退回第一套矢量皮肤
+            self._skin = 0
+        sk = SKINS[self._skin % len(SKINS)]
         s = self.size
         c = self.canvas
         c.delete("all")
@@ -160,6 +176,45 @@ class FloatingBall:
         # 球内文案
         c.create_text(s / 2, s * 0.77, text="积分", fill=sk["fg"],
                       font=("Microsoft YaHei UI", max(8, int(s * 0.14)), "bold"))
+
+    # ---------- 皮肤 ----------
+    def _skin_items(self) -> list:
+        """矢量皮肤 + 插件注册的图片皮肤，按 order 排。"""
+        items = [{"kind": "vector", "name": sk["name"], "index": i}
+                 for i, sk in enumerate(SKINS)]
+        for extra in sorted(self._extra_skins, key=lambda s: (s["order"], s["name"])):
+            items.append({"kind": "image", "name": extra["name"],
+                          "path": extra["path"]})
+        return items
+
+    def _skin_names(self) -> list:
+        return [item["name"] for item in self._skin_items()]
+
+    def _draw_image(self, path) -> bool:
+        """把图片裁成圆形画到球上；缺 Pillow 或图片损坏时返回 False。"""
+        try:
+            from PIL import Image, ImageDraw, ImageOps, ImageTk
+        except Exception:
+            return False
+        size = self.size
+        try:
+            img = Image.open(path).convert("RGBA")
+            resample = getattr(Image, "Resampling", Image).LANCZOS
+            img = ImageOps.fit(img, (size, size), resample)
+            mask = Image.new("L", (size, size), 0)
+            ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+            img.putalpha(mask)
+            self._photo = ImageTk.PhotoImage(img, master=self.win)
+        except Exception:
+            return False
+        c = self.canvas
+        s = size
+        c.delete("all")
+        c.create_oval(0, 0, s, s, fill="#101a2e", outline="")
+        c.create_image(s / 2, s / 2, image=self._photo)
+        bw = max(2, s // 30)
+        c.create_oval(bw, bw, s - bw, s - bw, outline="#4d9fff", width=bw)
+        return True
 
     # ---------- 事件 ----------
     def _bind(self):
@@ -190,16 +245,26 @@ class FloatingBall:
             # 记住位置，下次启动还在原处
             self._save_position()
             return
+        if self._click_action is not None:
+            try:
+                self._click_action()
+            except Exception as exc:
+                print(f"[悬浮球] 单击动作失败：{exc}")
+            return
         self.open_score()          # 默认编辑模式，需密钥
 
     def _popup_menu(self, event):
         menu = tk.Menu(self.win, tearoff=0, bg="#2a2a3a", fg="#e8e8f0",
                        activebackground="#3a3a4a", activeforeground="#e8e8f0",
                        bd=0, font=("Microsoft YaHei UI", 10))
-        for i, skin in enumerate(SKINS):
+        for i, skin in enumerate(self._skin_items()):
             label = ("● " if i == self._skin else "○ ") + f"皮肤：{skin['name']}"
             menu.add_command(label=label, command=lambda i=i: self.set_skin(i))
         menu.add_separator()
+        for item in self._plugin_menus:
+            menu.add_command(label=item["label"], command=item["callback"])
+        if self._plugin_menus:
+            menu.add_separator()
         menu.add_command(label="打开学生积分（需密钥）", command=self.open_score)
         menu.add_command(label="只读查看", command=lambda: self.open_score(True))
         menu.add_separator()
@@ -209,12 +274,51 @@ class FloatingBall:
         finally:
             menu.grab_release()
 
+    # ---------- 插件接口 ----------
+    def add_plugin_menu(self, label: str, callback, order: int = 100):
+        self._plugin_menus.append({"label": label, "callback": callback,
+                                   "order": order})
+        self._plugin_menus.sort(key=lambda i: (i["order"], i["label"]))
+
+    def register_image_skin(self, name: str, image_path, default: bool = False,
+                            order: int = 100):
+        self._extra_skins = [s for s in self._extra_skins if s["name"] != name]
+        self._extra_skins.append({"name": str(name), "path": str(image_path),
+                                  "order": order})
+        names = self._skin_names()
+        if self._skin_pref in names:
+            self.set_skin_name(self._skin_pref)
+        elif default:
+            self.set_skin_name(str(name))
+        else:
+            self._draw()
+
+    def refresh_skins(self):
+        self._photo = None
+        self._draw()
+
+    def set_skin_name(self, name: str) -> bool:
+        names = self._skin_names()
+        if name not in names:
+            return False
+        self._skin = names.index(name)
+        self._skin_pref = name
+        self._draw()
+        self._save_position()
+        return True
+
+    def set_click_action(self, callback):
+        self._click_action = callback
+
     # ---------- 功能 ----------
     def _save_position(self):
+        names = self._skin_names()
         try:
             _save_settings({"floating_ball": {
                 "x": self.win.winfo_x(), "y": self.win.winfo_y(),
-                "skin": self._skin, "hidden": self._hidden}})
+                "skin": self._skin,
+                "skin_name": names[self._skin] if names else "",
+                "hidden": self._hidden}})
         except tk.TclError:
             pass
 
@@ -265,7 +369,11 @@ class FloatingBall:
             pass
 
     def set_skin(self, index: int):
-        self._skin = index % len(SKINS)
+        items = self._skin_items()
+        if not items:
+            return
+        self._skin = index % len(items)
+        self._skin_pref = items[self._skin]["name"]
         self._draw()
         self._save_position()       # 换肤时连同位置一起保存，不再丢坐标
 
@@ -294,7 +402,9 @@ class FloatingBall:
                 return
 
         from student_score import StudentScoreWindow
-        self.root._score_window = StudentScoreWindow(self.win, readonly=readonly).win
+        ctrl = StudentScoreWindow(self.win, readonly=readonly)
+        ctrl.win._controller = ctrl
+        self.root._score_window = ctrl.win
 
     def destroy(self):
         try:

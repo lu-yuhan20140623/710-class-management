@@ -40,6 +40,7 @@ OP_LOG = LOG_DIR / "score_operations.log"
 FONT = "Microsoft YaHei UI"
 CARD_BG = BG_CELL
 CARD_SELECT = "#2f5f8f"      # 选中：与强调色 FG_ACCENT 同系的深蓝
+CHECK_BG = "#2f5f8f"         # 评价打分里勾选行的蓝色高亮底色
 CARD_FLASH = "#d4a017"       # 随机点名滚动/定格时的金色高亮
 CARD_W = 128                 # 卡片宽度 + 间距，用于计算列数
 LOW_SCORE_LIMIT = 60         # 默认预警阈值，可在 settings.json 里覆盖
@@ -386,7 +387,8 @@ class StudentScoreWindow:
                 card = tk.Button(self.inner, text=self._card_text(sid, info, group_map.get(sid)),
                                  font=(FONT, 10), bg=CARD_BG, fg=FG_TEXT,
                                  activebackground=BG_CELL_ALT, activeforeground=FG_TEXT,
-                                 relief=tk.FLAT, width=13, height=4, cursor="hand2",
+                                 relief=tk.FLAT, cursor="hand2", justify=tk.CENTER,
+                                 wraplength=120, padx=6, pady=6,
                                  command=lambda s=sid: self._toggle_select(s))
                 card.bind("<MouseWheel>", self._on_wheel)
                 self._cards[sid] = card
@@ -418,7 +420,8 @@ class StudentScoreWindow:
             card = tk.Button(self.inner, text=text, font=(FONT, 11),
                              bg=CARD_BG, fg=FG_TEXT,
                              activebackground=BG_CELL_ALT, activeforeground=FG_TEXT,
-                             relief=tk.FLAT, width=15, height=4, cursor="hand2",
+                             relief=tk.FLAT, cursor="hand2", justify=tk.CENTER,
+                             wraplength=140, padx=8, pady=6,
                              command=lambda g=gname: self._open_group_detail(g))
             card.bind("<MouseWheel>", self._on_wheel)
             self._group_cards[gname] = card
@@ -511,21 +514,47 @@ class StudentScoreWindow:
                 pass
         self._layout_job = self.win.after(60, self._apply_layout)
 
+    def _ideal_card_width(self) -> int:
+        """按最长文本估算卡片宽度：组名/姓名越长卡片越宽，避免被裁切。"""
+        import tkinter.font as tkfont
+        try:
+            if self.view_mode == "group":
+                font = tkfont.Font(font=(FONT, 11))
+                texts = list(self._groups()) or ["暂未分组"]
+            else:
+                font = tkfont.Font(font=(FONT, 10))
+                stu = self.all_students.get(self.current_class, {})
+                gmap = self._group_map()
+                texts = [info.get("name", "") for info in stu.values()]
+                texts += [item[0] for item in gmap.values()]
+                texts = texts or ["未分组"]
+            widest = max(font.measure(t) for t in texts)
+            return max(110, min(260, widest + 46))
+        except Exception:
+            return int(CARD_W)
+
     def _apply_layout(self):
         self._layout_job = None
         if not self.win.winfo_exists():
             return
-        cols = max(1, (self.canvas.winfo_width() - 16) // max(1, int(CARD_W * dpi_scale(self.win))))
+        avail = max(120, self.canvas.winfo_width() - 16)
+        ideal = max(1, int(self._ideal_card_width()))
+        cols = max(1, avail // ideal)
+        cell_w = max(96, avail // cols - 14)
         cards = (self._group_cards if self.view_mode == "group" else self._cards)
         for idx, card in enumerate(cards.values()):
             if not card.winfo_exists():
                 continue
+            # 卡片跟着列宽走，组名过长时自动换行而不是被截断
+            card.configure(wraplength=max(70, cell_w - 14))
             card.grid(row=idx // cols, column=idx % cols, padx=6, pady=6, sticky="nsew")
         # 列数变化时把旧的列权重清掉，否则窗口放大后再缩小会残留空白列
         previous = getattr(self, "_grid_cols", 0)
         for c in range(max(cols, previous)):
-            self.inner.grid_columnconfigure(c, weight=1 if c < cols else 0,
-                                            minsize=0, uniform="")
+            if c < cols:
+                self.inner.grid_columnconfigure(c, weight=1, minsize=0, uniform="card")
+            else:
+                self.inner.grid_columnconfigure(c, weight=0, minsize=0, uniform="")
         self._grid_cols = cols
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
@@ -797,6 +826,11 @@ class StudentScoreWindow:
         _save_json(STUDENT_FILE, self.all_students)
         _save_json(GROUP_FILE, self.group_data)
         _save_json(WEEKLY_ARCHIVE, dict(self.week_archive))
+        try:
+            import plugin_api
+            plugin_api.emit("score_changed", {"cls": self.current_class})
+        except Exception:
+            pass
 
     def _log_ops(self, lines):
         """把加减分操作追加到 logs/score_operations.log（失败不影响业务）。"""
@@ -1037,11 +1071,21 @@ class StudentScoreWindow:
             var = tk.BooleanVar(value=True)
             vars_[sid] = var
             gname = gmap.get(sid, "未分组")
-            tk.Checkbutton(pick_inner, text=f"{sid}  {info['name']}（{gname}）",
-                           variable=var, font=(FONT, 10), bg=BG_PANEL, fg=FG_TEXT,
-                           selectcolor=BG_CELL, activebackground=BG_PANEL,
-                           activeforeground=FG_TEXT, anchor="w")\
-                .pack(fill=tk.X, padx=8, pady=1)
+            base_text = f"{sid}  {info['name']}（{gname}）"
+            # indicatoron=False：整行就是勾选按钮，选中时整行蓝色高亮
+            cb = tk.Checkbutton(pick_inner, text="✔ " + base_text, variable=var,
+                                font=(FONT, 10), bg=BG_PANEL, fg="#ffffff",
+                                activebackground=CHECK_BG, activeforeground="#ffffff",
+                                selectcolor=CHECK_BG, relief="flat", bd=0,
+                                highlightthickness=0, padx=10, pady=4,
+                                anchor="w", cursor="hand2", indicatoron=False)
+            cb.pack(fill=tk.X, padx=6, pady=1)
+
+            def sync(w=cb, v=var, text=base_text):
+                on = v.get()
+                w.config(text=("✔ " if on else "   ") + text,
+                         fg="#ffffff" if on else FG_DIM)
+            var.trace_add("write", lambda *a, f=sync: f())
 
         form = tk.Frame(win, bg=BG_MAIN)
         form.pack(padx=24, pady=4, fill=tk.X)
@@ -1801,11 +1845,34 @@ class StudentScoreWindow:
             for text, cmd in group:
                 menu.add_command(label=text, command=cmd)
 
+        # 插件注册的扩展入口（积分分析中心 / 学生个人主页等）
+        try:
+            import plugin_api
+            plugin_items = plugin_api.score_menu_items(readonly=self.readonly)
+        except Exception:
+            plugin_items = []
+        if plugin_items:
+            menu.add_separator()
+            api = plugin_api.ScoreWindowAPI(self)
+            for label, callback in plugin_items:
+                menu.add_command(
+                    label=label,
+                    command=lambda cb=callback: self._run_plugin_item(cb, api))
+
         btn = self._more_btn
         try:
             menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
         finally:
             menu.grab_release()
+
+    def _run_plugin_item(self, callback, api):
+        """执行插件注册的积分窗口菜单项，异常只提示不中断窗口。"""
+        try:
+            callback(api)
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("插件出错", str(exc), parent=self.win)
 
 
 
