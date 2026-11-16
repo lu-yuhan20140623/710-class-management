@@ -614,6 +614,7 @@ class ScheduleUI:
                        bd=0, font=("Microsoft YaHei UI", 10))
         menu.add_command(label="⏱  测试倒计时窗口", command=self._toggle_overlay_manual)
         menu.add_command(label="◉  显示悬浮球", command=self._show_floating_ball)
+        menu.add_command(label="⇄  局域网连接（手机）", command=self._open_lan)
         menu.add_command(label="⚙  调试工具", command=self._open_debug_tool)
         menu.add_separator()
         menu.add_command(label="ℹ  版本信息", command=self._show_version_info)
@@ -734,6 +735,10 @@ class ScheduleUI:
         if not AskPasswordDialog(self.root, "打开调试工具需要密钥").result:
             return
         TimeDebugDialog(self.root)
+
+    def _open_lan(self):
+        """局域网直连：把本机地址提供给手机端读取实时数据。"""
+        LanDialog(self.root)
 
 
 class TimeDebugDialog:
@@ -1279,6 +1284,126 @@ class SettingsDialog:
                              relief=tk.FLAT, font=("Microsoft YaHei UI", 10, "bold"),
                              padx=20, pady=6, cursor="hand2")
         save_btn.pack(pady=(10, 4))
+
+
+class LanDialog:
+    """局域网直连：显示手机访问地址，并可临时在本进程启动服务。"""
+
+    def __init__(self, root):
+        import lan_server
+        self.lan = lan_server
+        self.root = root
+
+        self.win = tk.Toplevel(root)
+        self.win.title("局域网连接 · 课程表")
+        self.win.configure(bg=BG_MAIN)
+        self.win.transient(root)
+        self.win.grab_set()
+
+        tk.Label(self.win, text="手机查看课表与积分",
+                 font=("Microsoft YaHei UI", 14, "bold"),
+                 bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(18, 2))
+        tk.Label(self.win, text="手机与电脑连接同一个 Wi-Fi，用手机浏览器打开下面的地址",
+                 font=("Microsoft YaHei UI", 9), bg=BG_MAIN, fg=FG_DIM).pack()
+
+        self.status_label = tk.Label(self.win, text="", font=("Microsoft YaHei UI", 10),
+                                     bg=BG_MAIN, fg=FG_DIM)
+        self.status_label.pack(pady=(12, 6))
+
+        box = tk.Frame(self.win, bg=BG_PANEL, highlightbackground=BG_CELL, highlightthickness=1)
+        box.pack(fill=tk.X, padx=24)
+        self.url_var = tk.StringVar()
+        self.url_entry = tk.Entry(box, textvariable=self.url_var, font=("Consolas", 13),
+                                  bg=BG_CELL, fg=FG_TEXT, readonlybackground=BG_CELL,
+                                  relief=tk.FLAT, justify=tk.CENTER)
+        self.url_entry.pack(fill=tk.X, padx=12, pady=12, ipady=6)
+        self.url_entry.config(state="readonly")
+
+        btns = tk.Frame(self.win, bg=BG_MAIN)
+        btns.pack(pady=10)
+        self._btn(btns, "复制地址", self._copy).pack(side=tk.LEFT, padx=4)
+        self._btn(btns, "在电脑上预览", self._preview).pack(side=tk.LEFT, padx=4)
+        self.start_btn = self._btn(btns, "启动服务", self._start, primary=True)
+        self.start_btn.pack(side=tk.LEFT, padx=4)
+
+        self.detail = tk.Label(self.win, text="", font=("Microsoft YaHei UI", 9),
+                               bg=BG_MAIN, fg=FG_DIM, justify=tk.LEFT, wraplength=470)
+        self.detail.pack(fill=tk.X, padx=24, pady=(10, 4))
+
+        tk.Label(self.win,
+                 text="提示：首次启动时若 Windows 弹出防火墙提示，请选择“允许访问”。\n"
+                      "数据接口只读，不需要密钥；请只在可信的教室局域网内使用。",
+                 font=("Microsoft YaHei UI", 9), bg=BG_MAIN, fg=FG_WARN,
+                 justify=tk.LEFT, wraplength=470).pack(fill=tk.X, padx=24, pady=(4, 8))
+
+        tk.Button(self.win, text="关闭", command=self.win.destroy,
+                  bg=BG_CELL, fg=FG_TEXT, activebackground=BG_CELL_ALT,
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 10),
+                  padx=22, pady=6, cursor="hand2").pack(pady=(4, 16))
+
+        center_window(self.win, root, 560, 430)
+        self._refresh()
+
+    def _btn(self, parent, text, cmd, primary=False):
+        return tk.Button(parent, text=text, command=cmd,
+                         bg=BG_IN_CLASS if primary else BG_CELL,
+                         fg=FG_TEXT,
+                         activebackground="#4b7b4b" if primary else BG_CELL_ALT,
+                         relief=tk.FLAT, font=("Microsoft YaHei UI", 10),
+                         padx=14, pady=5, cursor="hand2")
+
+    def _probe(self):
+        """确认本机 8765 端口上是否已有服务在响应。"""
+        import json
+        import urllib.request
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{self.lan.configured_port()}/api/ping",
+                    timeout=1.5) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    def _refresh(self):
+        url = self.lan.base_url()
+        self.url_var.set(url)
+        info = self._probe()
+        if info:
+            self.status_label.config(
+                text=f"● 服务运行中 · {info.get('class_name', '')} · 版本 {info.get('version', '')}",
+                fg=FG_OK)
+            self.start_btn.config(state=tk.DISABLED)
+            self.detail.config(
+                text=f"完整数据：{url}/api/snapshot\n"
+                     f"实时推送：{url}/api/events（数据一有变化就下发）")
+        else:
+            self.status_label.config(text="○ 服务未启动（后台服务未运行时，可点“启动服务”）",
+                                     fg=FG_WARN)
+            self.start_btn.config(state=tk.NORMAL)
+            self.detail.config(text="启动后，手机即可读取课表、当前课节、小组积分和卫生扣分。")
+
+        if self.lan.lan_ip().startswith("127."):
+            self.detail.config(text=self.detail.cget("text") +
+                               "\n未检测到局域网地址，请确认电脑已连接 Wi-Fi 或网线。")
+
+    def _copy(self):
+        try:
+            self.win.clipboard_clear()
+            self.win.clipboard_append(self.url_var.get())
+            self.status_label.config(text="地址已复制到剪贴板", fg=FG_ACCENT)
+        except tk.TclError:
+            pass
+
+    def _preview(self):
+        import webbrowser
+        webbrowser.open(self.url_var.get())
+
+    def _start(self):
+        ok, msg, _url = self.lan.start()
+        if not ok and not self._probe():
+            messagebox.showwarning("局域网连接", msg, parent=self.win)
+            return
+        self._refresh()
 
 
 class AskPasswordDialog:

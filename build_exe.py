@@ -45,6 +45,7 @@ APP_FILES = [
     "floating_ball.py",
     "floating_ball_service.py",
     "ball_bridge.py",
+    "lan_server.py",
     "version.py",
     "version_manager.py",
     "updater.py",
