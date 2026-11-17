@@ -1341,7 +1341,7 @@ class SettingsDialog:
 
 
 class LanDialog:
-    """局域网直连：显示手机访问地址，并可临时在本进程启动服务。"""
+    """局域网直连：显示手机访问地址；服务由常驻后台进程提供。"""
 
     def __init__(self, root):
         import lan_server
@@ -1377,7 +1377,7 @@ class LanDialog:
         btns.pack(pady=10)
         self._btn(btns, "复制地址", self._copy).pack(side=tk.LEFT, padx=4)
         self._btn(btns, "在电脑上预览", self._preview).pack(side=tk.LEFT, padx=4)
-        self.start_btn = self._btn(btns, "启动服务", self._start, primary=True)
+        self.start_btn = self._btn(btns, "启动后台服务", self._start, primary=True)
         self.start_btn.pack(side=tk.LEFT, padx=4)
 
         self.detail = tk.Label(self.win, text="", font=("Microsoft YaHei UI", 9),
@@ -1431,10 +1431,11 @@ class LanDialog:
                 text=f"完整数据：{url}/api/snapshot\n"
                      f"实时推送：{url}/api/events（数据一有变化就下发）")
         else:
-            self.status_label.config(text="○ 服务未启动（后台服务未运行时，可点“启动服务”）",
+            self.status_label.config(text="○ 服务未启动（局域网由后台服务提供，可点“启动后台服务”）",
                                      fg=FG_WARN)
             self.start_btn.config(state=tk.NORMAL)
-            self.detail.config(text="启动后，手机即可读取课表、当前课节、小组积分和卫生扣分。")
+            self.detail.config(text="启动后，手机即可读取课表、当前课节、小组积分和卫生扣分。\n"
+                                    "服务由常驻后台进程提供，关闭本窗口后手机仍可继续访问。")
 
         if self.lan.lan_ip().startswith("127."):
             self.detail.config(text=self.detail.cget("text") +
@@ -1453,11 +1454,28 @@ class LanDialog:
         webbrowser.open(self.url_var.get())
 
     def _start(self):
-        ok, msg, _url = self.lan.start()
-        if not ok and not self._probe():
+        # 局域网端口只由常驻后台进程提供，GUI 进程不绑定，避免关闭窗口后手机断连
+        if self._probe():
+            self._refresh()
+            return
+        import autostart
+        ok, msg = autostart.start_backend()
+        if not ok:
             messagebox.showwarning("局域网连接", msg, parent=self.win)
             return
+        import time
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            if self._probe():
+                self._refresh()
+                return
+            time.sleep(0.4)
         self._refresh()
+        messagebox.showwarning(
+            "局域网连接",
+            f"后台服务已启动，但 {self.lan.configured_port()} 端口暂未响应。\n"
+            "请稍等几秒后重新打开本窗口。",
+            parent=self.win)
 
 
 class AskPasswordDialog:
