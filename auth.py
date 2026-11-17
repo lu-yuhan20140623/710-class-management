@@ -130,6 +130,43 @@ def change_password(old_password: str, new_password: str) -> tuple[bool, str]:
     return (True, "密钥已更新") if ok else (False, msg)
 
 
+def reset_password_by_phone(phone: str, new_password: str) -> tuple[bool, str]:
+    """忘记密钥：用教师绑定手机号验证后重置（无需验证码）。"""
+    if not new_password:
+        return False, "新密钥不能为空"
+    try:
+        import roles
+    except Exception:
+        return False, "身份模块不可用"
+    if not roles.verify_phone(phone):
+        return False, "手机号与教师绑定的号码不一致"
+    try:
+        _load()
+    except PasswordFileError as e:
+        return False, str(e)
+
+    salt = secrets.token_hex(16)
+    new_hash = _hash(new_password, salt)
+    payload = {"salt": salt, "hash": new_hash}
+    _ensure_backend()
+    if _backend_ready():
+        request = {
+            "id": secrets.token_hex(8),
+            "action": "reset_phone",
+            "phone": (phone or "").strip(),
+            "salt": salt,
+            "hash": new_hash,
+            "time": time.time(),
+        }
+        ok, msg = _send_request(request)
+        return (True, "密钥已重置") if ok else (False, msg)
+    try:
+        _atomic_write_json(PW_FILE, payload)
+        return True, "密钥已重置"
+    except OSError as e:
+        return False, f"写入失败：{e}"
+
+
 def _backend_ready() -> bool:
     """确认后台服务确实在运行（避免无意义地等响应文件）。"""
     try:
@@ -292,18 +329,32 @@ def process_password_requests() -> bool:
     resp = {"id": req.get("id", ""), "ok": False, "msg": ""}
     try:
         current = json.loads(_read_locked_text())
-        old = str(req.get("old", ""))
-        if not hmac.compare_digest(_hash(old, current["salt"]), current["hash"]):
-            resp["msg"] = "旧密钥不正确"
-        else:
-            salt = str(req.get("salt", ""))
-            new_hash = str(req.get("hash", ""))
-            if not salt or not new_hash:
-                resp["msg"] = "请求数据不完整"
+        if req.get("action") == "reset_phone":
+            import roles
+            if not roles.verify_phone(str(req.get("phone", ""))):
+                resp["msg"] = "手机号与教师绑定的号码不一致"
             else:
-                _write_locked_text(json.dumps({"salt": salt, "hash": new_hash}))
-                resp["ok"] = True
-                resp["msg"] = "密钥已更新"
+                salt = str(req.get("salt", ""))
+                new_hash = str(req.get("hash", ""))
+                if not salt or not new_hash:
+                    resp["msg"] = "请求数据不完整"
+                else:
+                    _write_locked_text(json.dumps({"salt": salt, "hash": new_hash}))
+                    resp["ok"] = True
+                    resp["msg"] = "密钥已重置"
+        else:
+            old = str(req.get("old", ""))
+            if not hmac.compare_digest(_hash(old, current["salt"]), current["hash"]):
+                resp["msg"] = "旧密钥不正确"
+            else:
+                salt = str(req.get("salt", ""))
+                new_hash = str(req.get("hash", ""))
+                if not salt or not new_hash:
+                    resp["msg"] = "请求数据不完整"
+                else:
+                    _write_locked_text(json.dumps({"salt": salt, "hash": new_hash}))
+                    resp["ok"] = True
+                    resp["msg"] = "密钥已更新"
     except Exception as e:
         resp["msg"] = f"密钥文件已损坏或被篡改：{e}"
 

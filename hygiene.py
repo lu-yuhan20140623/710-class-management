@@ -425,9 +425,10 @@ def maybe_show_first_boot_report(parent) -> None:
 class HygieneWindow:
     """卫生管理：只看卫生扣分，单独统计，不影响学生积分。"""
 
-    def __init__(self, parent, default_class: str = DEFAULT_CLASS):
+    def __init__(self, parent, default_class: str = DEFAULT_CLASS, readonly: bool = False):
+        self.readonly = readonly
         self.win = tk.Toplevel(parent)
-        self.win.title("卫生管理 · 课程表")
+        self.win.title("卫生管理（只读）· 课程表" if readonly else "卫生管理 · 课程表")
         fit_geometry(self.win, 820, 640, 680, 540)
         self.win.configure(bg=BG_MAIN)
 
@@ -482,7 +483,8 @@ class HygieneWindow:
         # 底部按钮
         bar = tk.Frame(self.win, bg=BG_MAIN)
         bar.pack(fill=tk.X, padx=16, pady=(4, 6))
-        self._btn(bar, "🧹 记录扣分", self._open_record, primary=True).pack(side=tk.RIGHT)
+        if not self.readonly:
+            self._btn(bar, "🧹 记录扣分", self._open_record, primary=True).pack(side=tk.RIGHT)
         self._btn(bar, "📋 扣分明细", self._show_details).pack(side=tk.RIGHT, padx=8)
         self._btn(bar, "📊 小组扣分图", self._group_chart).pack(side=tk.LEFT)
         self._btn(bar, "🥧 理由分布", self._reason_chart).pack(side=tk.LEFT, padx=8)

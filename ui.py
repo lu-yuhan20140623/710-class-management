@@ -316,8 +316,12 @@ class ScheduleUI:
             .pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
         self._big_button(row1, "🧹 卫生管理", self._open_hygiene)\
             .pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self._big_button(btn_frame, "⚙ 课程设置", self._open_settings)\
-            .pack(fill=tk.X, pady=2)
+        row2 = tk.Frame(btn_frame, bg=BG_PANEL)
+        row2.pack(fill=tk.X, pady=2)
+        self._big_button(row2, "⚙ 课程设置", self._open_settings)\
+            .pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
+        self._big_button(row2, "📋 值日生任命", self._open_duty_admin)\
+            .pack(side=tk.LEFT, fill=tk.X, expand=True)
         self._more_button = self._big_button(btn_frame, "▾ 更多功能", self._open_more_menu)
         self._more_button.pack(fill=tk.X, pady=2)
 
@@ -622,6 +626,10 @@ class ScheduleUI:
     # ========== 设置 / 禁用段管理 ==========
     def _open_settings(self):
         SettingsDialog(self.root, self.backend, self)
+
+    def _open_duty_admin(self):
+        from entry import DutyAdminWindow
+        DutyAdminWindow(self.root)
 
     def _open_more_menu(self):
         """更多功能下拉菜单（不弹新窗口）"""
@@ -1338,6 +1346,31 @@ class SettingsDialog:
                              relief=tk.FLAT, font=("Microsoft YaHei UI", 10, "bold"),
                              padx=20, pady=6, cursor="hand2")
         save_btn.pack(pady=(10, 4))
+
+        # ---- 手机号绑定：忘记密钥时凭手机号重置（无需验证码） ----
+        import roles
+        tk.Frame(tab, bg=BG_CELL, height=1).pack(fill=tk.X, padx=14, pady=(14, 10))
+        phone_row = tk.Frame(tab, bg=BG_PANEL)
+        phone_row.pack(fill=tk.X, padx=14, pady=2)
+        tk.Label(phone_row, text="绑定手机号", width=12, anchor="w", bg=BG_PANEL,
+                 fg=FG_TEXT, font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        e_phone = tk.Entry(phone_row, width=26, font=("Consolas", 11), bg=BG_CELL,
+                           fg=FG_TEXT, insertbackground=FG_TEXT, relief=tk.FLAT)
+        e_phone.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+        e_phone.insert(0, roles.get_phone())
+        phone_msg = tk.Label(tab, text="用于教师端、学生端、值日生端忘记密钥时重置",
+                             font=("Microsoft YaHei UI", 9), bg=BG_PANEL, fg=FG_DIM)
+        phone_msg.pack(anchor=tk.W, padx=14, pady=(4, 2))
+
+        def save_phone():
+            ok, m = roles.set_phone(e_phone.get())
+            phone_msg.config(text=("✓ " if ok else "✗ ") + m,
+                             fg=FG_OK if ok else FG_DANGER)
+
+        tk.Button(tab, text="📱 保存手机号", command=save_phone,
+                  bg=BG_CELL, fg=FG_TEXT, activebackground=BG_CELL_ALT,
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 10),
+                  padx=16, pady=5, cursor="hand2").pack(pady=(4, 12))
 
 
 class LanDialog:

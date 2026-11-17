@@ -92,7 +92,39 @@ def main():
     enable_high_dpi(root)          # 按实际 DPI 调整字体缩放
     _apply_ttk_theme(root)
 
+    # 3. 身份选择（教师端 / 学生端 / 值日生端 / 查看信息）
+    root.withdraw()
+    import entry
+    try:
+        mode, payload = entry.choose(root)
+    except Exception as e:
+        messagebox.showerror("启动失败", f"身份选择界面加载失败：{e}", parent=root)
+        backend.stop()
+        root.destroy()
+        return
+    if mode is None:
+        backend.stop()
+        root.destroy()
+        return
+    if mode != "teacher":
+        try:
+            entry.open_target(root, mode, payload)
+        except Exception as e:
+            messagebox.showerror("启动失败", f"{e}", parent=root)
+            backend.stop()
+            root.destroy()
+            return
+        print(f"[课程表] 已以「{mode}」身份进入")
+        try:
+            root.mainloop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            backend.stop()
+        return
+
     ui = ScheduleUI(root, backend)
+    root.deiconify()
     ui._system_time_modified = False   # 给关闭时恢复北京时间用
 
     # 提示 backend_service.py 状态
