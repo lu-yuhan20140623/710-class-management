@@ -47,6 +47,7 @@ APP_FILES = [
     "ball_bridge.py",
     "plugin_events.py",
     "plugin_api.py",
+    "lan_server.py",
     "version.py",
     "version_manager.py",
     "updater.py",

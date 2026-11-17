@@ -79,6 +79,15 @@ def main():
     backend = BackendService(tick_interval=0.5)
     backend.start()
 
+    # 2.1 局域网直连：手机端可实时读取课表 / 积分 / 卫生
+    #     后台服务通常已经提供了该端口；这里再试一次，方便只开主界面的调试场景
+    try:
+        import lan_server
+        lan_ok, lan_msg, lan_url = lan_server.start()
+        print(f"[课程表] 局域网：{lan_msg}  {lan_url}")
+    except Exception as e:
+        print(f"[课程表] 局域网服务启动失败：{e}")
+
     # 3. Tk 主窗口
     #    DPI 感知必须在创建窗口前设置，否则高分辨率屏上整体发虚
     enable_high_dpi()

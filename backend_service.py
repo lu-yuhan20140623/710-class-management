@@ -17,6 +17,7 @@ from datetime import datetime
 import schedule as sch
 import auth
 import score_records
+import lan_server
 
 if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).parent.resolve()
@@ -200,6 +201,12 @@ def main():
     reset_check_gap = 20.0       # 每 20 秒检查一次是否到了卫生/积分重置时间
     last_reset_check = 0.0
 
+    # 局域网直连：手机端通过 http://<本机IP>:8765 读取并订阅数据
+    # 端口被主界面临时占用时，每 30 秒重试一次，等它退出后接管
+    lan_ready = False
+    last_lan_try = 0.0
+    last_lan_msg = ""
+
     try:
         while running:
             # 每次循环都检查一次改密请求（GUI 不直接写密码文件）
@@ -210,6 +217,14 @@ def main():
 
             # 悬浮球常驻：不依赖上课状态，进程不在了就重新拉起
             ensure_ball()
+
+            # 局域网直连服务：手机可实时读取课表 / 积分 / 卫生
+            if not lan_ready and time.time() - last_lan_try >= 30:
+                last_lan_try = time.time()
+                lan_ready, lan_msg, lan_url = lan_server.start()
+                if lan_msg != last_lan_msg:
+                    log(f"局域网服务：{lan_msg}  {lan_url}")
+                    last_lan_msg = lan_msg
 
             # 定时重置：卫生每天中午 12:00，积分每周一中午 12:00（重置前归档 XLSX）
             if time.time() - last_reset_check >= reset_check_gap:

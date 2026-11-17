@@ -157,7 +157,8 @@ def is_backend_running() -> bool:
         try:
             r = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                capture_output=True, text=True, timeout=3,
+                capture_output=True, text=True, encoding="mbcs", errors="replace",
+                timeout=3,
             )
             # 输出第一列是 "xxx"，有值说明存在；"INFO: ..." 开头说明没有
             out = (r.stdout or "").strip()
