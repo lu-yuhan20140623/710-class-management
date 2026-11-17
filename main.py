@@ -26,6 +26,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 import autostart
+import instance_guard
 import time_debug
 from backend import BackendService
 from ui import ScheduleUI, _apply_ttk_theme, enable_high_dpi
@@ -66,6 +67,11 @@ def _handle_cli() -> bool:
 
 def main():
     if _handle_cli():
+        return
+    # 0. 单实例：已有主界面在运行时，把它带到前台后退出
+    if not instance_guard.acquire("Main"):
+        if not instance_guard.activate_window("课程表 · 七年级10班"):
+            _cli_report("课程表已经在运行，请勿重复打开。")
         return
     # 1. 开机自启注册（若缺失或指向错误脚本则自动修正为 backend_service.py）
     just_registered, msg = autostart.ensure_registered()

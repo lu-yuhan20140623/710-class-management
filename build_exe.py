@@ -48,6 +48,7 @@ APP_FILES = [
     "plugin_events.py",
     "plugin_api.py",
     "lan_server.py",
+    "instance_guard.py",
     "version.py",
     "version_manager.py",
     "updater.py",

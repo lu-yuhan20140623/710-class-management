@@ -9,6 +9,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import instance_guard
+
 if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).parent.resolve()
 else:
@@ -55,6 +57,9 @@ def is_already_running() -> bool:
 
 
 def main():
+    if not instance_guard.acquire("Ball"):
+        log("已有悬浮球实例在运行，退出。")
+        return
     if is_already_running():
         log("已有悬浮球实例在运行，退出。")
         return

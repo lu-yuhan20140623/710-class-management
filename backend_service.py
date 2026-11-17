@@ -16,6 +16,7 @@ from datetime import datetime
 
 import schedule as sch
 import auth
+import instance_guard
 import score_records
 import lan_server
 
@@ -179,7 +180,10 @@ def handle_sigterm(signum, frame):
 def main():
     global running
 
-    # 防重复启动
+    # 防重复启动（命名互斥体，不依赖 PID 文件是否及时写入）
+    if not instance_guard.acquire("Backend"):
+        log("已有 backend 实例在运行，退出。")
+        sys.exit(0)
     if is_already_running():
         log("已有 backend 实例在运行，退出。")
         sys.exit(0)
