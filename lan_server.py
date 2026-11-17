@@ -439,6 +439,13 @@ code{background:#232a3a;border-radius:5px;padding:2px 7px;font-family:Consolas,m
 </div></body></html>"""
 
 
+class _LanServer(ThreadingHTTPServer):
+    """Windows 下 SO_REUSEADDR 会允许重复绑定同一端口，必须显式关闭。"""
+
+    allow_reuse_address = False
+    daemon_threads = True
+
+
 class _Handler(BaseHTTPRequestHandler):
     server_version = "ClassScheduleLAN/1.0"
     protocol_version = "HTTP/1.1"
@@ -564,7 +571,7 @@ def start(port: int | None = None, host: str = "0.0.0.0") -> tuple[bool, str, st
 
         _server_port = int(port or configured_port())
         try:
-            httpd = ThreadingHTTPServer((host, _server_port), _Handler)
+            httpd = _LanServer((host, _server_port), _Handler)
         except OSError as exc:
             winerror = getattr(exc, "winerror", None)
             if winerror == 10048 or getattr(exc, "errno", None) in (48, 98, 10048):
