@@ -57,6 +57,8 @@ def main():
     parser.add_argument("--old", required=True, help="上一版本的 version.json")
     parser.add_argument("--dist", default=str(ROOT / "dist"), help="新版本打包目录")
     parser.add_argument("--out", default="", help="输出目录（默认与 dist 相同）")
+    parser.add_argument("--exe-unchanged", action="store_true",
+                        help="启动器未改时强制标记 exe_changed=false（重新打包会改变 exe 哈希）")
     args = parser.parse_args()
 
     old = load_manifest(Path(args.old))
@@ -80,6 +82,8 @@ def main():
         sys.exit("两个版本的代码完全一致，无需生成补丁")
 
     exe_changed = (old.get("exe") or {}) != (new.get("exe") or {})
+    if args.exe_unchanged:
+        exe_changed = False
     ratio = len(touched) / max(1, len(new_files))
     if ratio > BIG_CHANGE_RATIO:
         print(f"[提示] 变动文件 {len(touched)}/{len(new_files)}（{ratio:.0%}），改动较大，"

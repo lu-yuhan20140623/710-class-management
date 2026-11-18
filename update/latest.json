@@ -1,13 +1,16 @@
 {
-  "version": "2.1.0",
+  "version": "2.1.1",
   "published_at": "2026-11-18",
-  "previous_version": "2.0.0",
+  "previous_version": "2.1.0",
   "exe_changed": false,
-  "notes": "新增自动更新：开机检查新版本，增量补丁或完整安装包自动下载，应用后自动重启。",
-  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.1.0",
-  "renew": null,
+  "notes": "代码结构解耦：学生积分、主界面与安卓主页面拆分为多个模块，功能与数据格式完全兼容；本版提供增量补丁，2.1.0 可直接热更新。",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.1.1",
+  "renew": {
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.1.1/renew_2.1.0_to_2.1.1.zip",
+    "sha256": "8dd55cc6347494cab9a8982b7c7c3652ab79a770f6e7de1f9d013cc2b7636a07"
+  },
   "setup": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.1.0/ClassSchedule_Setup_2.1.0.exe",
-    "sha256": "bec7ff62b4ac2809d2d71678b60fd96476aea880f08fdd3589049db736b60d4d"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.1.1/ClassSchedule_Setup_2.1.1.exe",
+    "sha256": "5453e5333136fe17a82c428809ae64774f6878e1c1b67383b1d1df9c83d33be0"
   }
 }
