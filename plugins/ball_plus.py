@@ -17,7 +17,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import plugin_api as plug
-import schedule
+import schedule_core as schedule
 from ui import (
     BG_MAIN, BG_PANEL, BG_CELL, BG_CELL_ALT, BG_IN_CLASS,
     FG_TEXT, FG_DIM, FG_ACCENT, FG_WARN, FG_DANGER, FG_OK, dpi_scale,

@@ -57,8 +57,7 @@ def _load_json(path: Path, default):
 
 
 def _save_json(path: Path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    store.atomic_write_json(path, data)
 
 
 def load_settings() -> dict:

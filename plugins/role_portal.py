@@ -12,11 +12,11 @@ from datetime import datetime
 from tkinter import messagebox, ttk
 
 import plugin_api as plug
-import schedule
+import schedule_core as schedule
 from ui import (
     BG_MAIN, BG_PANEL, BG_CELL, BG_CELL_ALT, BG_IN_CLASS,
     FG_TEXT, FG_DIM, FG_ACCENT, FG_WARN, FG_DANGER, FG_OK,
-    AskPasswordDialog, dpi_scale,
+    dpi_scale,
 )
 
 PLUGIN = {
@@ -48,6 +48,7 @@ def _place(win, width, height):
     k = dpi_scale(win)
     w, h = int(width * k), int(height * k)
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    w, h = min(w, sw - 40), min(h, sh - 80)
     x = max(8, (sw - w) // 2)
     y = max(16, (sh - h) // 3)
     win.geometry(f"{w}x{h}+{x}+{y}")
@@ -68,8 +69,9 @@ def _mix(c1, c2, t):
 
 
 class StudentPortalWindow:
-    def __init__(self, ctx, class_name=None, sid=None, page="home"):
+    def __init__(self, ctx, class_name=None, sid=None, page="home", allow_switch=True):
         self.ctx = ctx
+        self.allow_switch = allow_switch
         self.data = ctx.data
         self.win = tk.Toplevel(ctx.app)
         self.win.title("学生端 · 课堂助手")
@@ -99,9 +101,10 @@ class StudentPortalWindow:
         self._build_header()
         body = tk.Frame(self.win, bg=BG_MAIN)
         body.pack(fill=tk.BOTH, expand=True, padx=18, pady=(4, 0))
-        nav = tk.Frame(body, bg=BG_PANEL, width=138)
+        nav = tk.Frame(body, bg=BG_PANEL)
         nav.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         nav.pack_propagate(False)
+        nav.configure(width=int(150 * dpi_scale(self.win)))
         self.nav_buttons = {}
         for key, label in (("home", "🏠 我的积分"), ("records", "🧾 我的记录"),
                            ("ranking", "🏅 班级排行"), ("honor", "🏆 荣誉榜"),
@@ -133,18 +136,21 @@ class StudentPortalWindow:
         header.pack(fill=tk.X, padx=18, pady=(12, 4))
         tk.Label(header, text="🎓 学生端", font=(FONT, 19, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(side=tk.LEFT)
-        tk.Label(header, text=self.cls, font=(FONT, 11), bg=BG_MAIN,
-                 fg=FG_TEXT).pack(side=tk.LEFT, padx=(14, 6))
+        tk.Label(header, text=self.cls, font=(FONT, 10), bg=BG_CELL,
+                 fg=FG_TEXT, padx=10, pady=3).pack(side=tk.LEFT, padx=(12, 0))
 
-        self.student_box = ttk.Combobox(header, state="readonly", width=16,
-                                        font=(FONT, 10))
-        self.student_box.pack(side=tk.LEFT)
-        self.student_box.bind("<<ComboboxSelected>>", self._on_student_change)
-        self._refresh_student_box()
-
-        _btn(header, "返回教师端（需密钥）", self._back_to_teacher).pack(
-            side=tk.RIGHT, padx=4)
-        _btn(header, "关闭", self.close).pack(side=tk.RIGHT, padx=4)
+        _btn(header, "关闭", self.close).pack(side=tk.RIGHT)
+        if self.allow_switch:
+            self.student_box = ttk.Combobox(header, state="readonly", width=18,
+                                            font=(FONT, 10))
+            self.student_box.pack(side=tk.RIGHT, padx=(0, 8))
+            self.student_box.bind("<<ComboboxSelected>>", self._on_student_change)
+            self._refresh_student_box()
+        else:
+            name = (self.students.get(self.sid) or {}).get("name", "")
+            tk.Label(header, text=f"{self.sid} {name}", font=(FONT, 10),
+                     bg=BG_CELL, fg=FG_TEXT, padx=10, pady=4)\
+                .pack(side=tk.RIGHT, padx=(0, 8))
 
     def _refresh_student_box(self):
         options = [f"{sid} {info.get('name', '')}"
@@ -168,18 +174,6 @@ class StudentPortalWindow:
         self.ctx.settings.update({"last_student": last, "last_class": self.cls})
         self.show_page(self._current_page)
 
-    def _back_to_teacher(self):
-        if not AskPasswordDialog(self.win, "返回教师端需要密钥").result:
-            return
-        self.close()
-        try:
-            self.ctx.app.deiconify()
-            self.ctx.app.lift()
-            self.ctx.app.focus_force()
-        except tk.TclError:
-            pass
-
-    # ---------- 页面 ----------
     def show_page(self, key):
         self._current_page = key
         if self._clock_job is not None:
@@ -304,41 +298,49 @@ class StudentPortalWindow:
                      fg=FG_DIM).pack(side=tk.RIGHT, padx=8)
 
     def _hero(self, parent, profile, total, rank):
-        name, c1, c2 = THEMES[profile["theme"]]
+        _name, c1, c2 = THEMES[profile["theme"]]
         holder = tk.Frame(parent, bg=BG_PANEL)
         holder.pack(fill=tk.X, padx=14, pady=(14, 0))
-        canvas = tk.Canvas(holder, height=int(170 * dpi_scale(parent)),
+        canvas = tk.Canvas(holder, height=int(166 * dpi_scale(parent)),
                            bg=BG_PANEL, highlightthickness=0, bd=0)
         canvas.pack(fill=tk.X)
 
         def draw(_event=None):
             canvas.delete("all")
+            k = dpi_scale(canvas)
             w = canvas.winfo_width() or 800
-            h = int(170 * dpi_scale(canvas))
+            h = int(166 * k)
             steps = 36
             for i in range(steps):
                 canvas.create_rectangle(
                     0, h * i / steps, w, h * (i + 1) / steps + 1,
                     fill=_mix(c1, c2, i / steps), outline="")
-            canvas.create_oval(w - 190, -60, w + 40, h + 40, fill=_mix(c2, "#ffffff", 0.18),
-                               outline="")
-            canvas.create_oval(w - 340, 90, w - 230, h + 60,
+            canvas.create_oval(w - 190 * k, -60 * k, w + 40 * k, h + 40 * k,
+                               fill=_mix(c2, "#ffffff", 0.18), outline="")
+            canvas.create_oval(w - 340 * k, 84 * k, w - 225 * k, h + 60 * k,
                                fill=_mix(c1, "#ffffff", 0.25), outline="")
-            canvas.create_oval(28, 34, 128, 134, fill="#ffffff", outline="")
-            canvas.create_text(78, 84, text=profile["avatar"], font=(FONT, 40))
-            canvas.create_text(148, 62, text=profile["nickname"], anchor="w",
-                               font=(FONT, 23, "bold"), fill="#ffffff")
-            canvas.create_text(150, 96, text=f"{self.cls} · {self._group_name()}",
+            canvas.create_oval(30 * k, 27 * k, 134 * k, 131 * k,
+                               fill="#ffffff", outline="")
+            canvas.create_text(82 * k, 79 * k, text=profile["avatar"],
+                               font=(FONT, 36))
+            text_w = max(120, int(w - 360 * k))
+            canvas.create_text(154 * k, 54 * k, text=profile["nickname"], anchor="w",
+                               font=(FONT, 22, "bold"), fill="#ffffff",
+                               width=text_w)
+            canvas.create_text(156 * k, 90 * k,
+                               text=f"{self.cls} · {self._group_name()}",
                                anchor="w", font=(FONT, 10), fill="#e8ecff")
-            canvas.create_text(150, 121, text=f"“{profile['motto']}”", anchor="w",
-                               font=(FONT, 10), fill="#dfe6ff")
-            canvas.create_text(w - 40, 50, text=str(total), anchor="e",
-                               font=(FONT, 40, "bold"), fill="#ffffff")
-            canvas.create_text(w - 40, 94, text="总积分", anchor="e",
+            canvas.create_text(156 * k, 118 * k, text=f"“{profile['motto']}”",
+                               anchor="w", font=(FONT, 10), fill="#dfe6ff",
+                               width=text_w)
+            canvas.create_text(w - 40 * k, 58 * k, text=str(total), anchor="e",
+                               font=(FONT, 36, "bold"), fill="#ffffff")
+            canvas.create_text(w - 40 * k, 98 * k, text="总积分", anchor="e",
                                font=(FONT, 10), fill="#e8ecff")
             if rank:
-                canvas.create_text(w - 40, 124, text=f"班级第 {rank} 名", anchor="e",
-                                   font=(FONT, 11, "bold"), fill="#fff4c2")
+                canvas.create_text(w - 40 * k, 126 * k, text=f"班级第 {rank} 名",
+                                   anchor="e", font=(FONT, 11, "bold"),
+                                   fill="#fff4c2")
 
         canvas.bind("<Configure>", draw)
         canvas.after_idle(draw)
@@ -731,7 +733,8 @@ def _open_portal(ctx, class_name=None, sid=None, page="home"):
         if existing is not None and existing.win.winfo_exists():
             if sid and sid in existing.students:
                 existing.sid = sid
-                existing._refresh_student_box()
+                if getattr(existing, "allow_switch", False):
+                    existing._refresh_student_box()
             existing.show_page(page)
             existing.win.deiconify()
             existing.win.lift()

@@ -7,6 +7,8 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -22,6 +24,11 @@ import android.app.AlertDialog       // 新增：填写电脑端地址
 import android.util.Log              // 新增
 import android.widget.EditText       // 新增
 import android.widget.Toast          // 新增
+import androidx.core.view.ViewCompat          // 新增：系统栏内边距
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.updatePadding
 import org.json.JSONArray            // 新增：解析局域网 JSON
 import org.json.JSONObject
 import java.io.File                  // 新增
@@ -250,7 +257,7 @@ class LanClient(
                 onStatus("连接中…", false)
                 conn = (URL("$base/api/events").openConnection() as HttpURLConnection).apply {
                     connectTimeout = 4000
-                    readTimeout = 0
+                    readTimeout = 30_000
                     requestMethod = "GET"
                     setRequestProperty("Accept", "text/event-stream")
                     setRequestProperty("Cache-Control", "no-cache")
@@ -336,7 +343,15 @@ class MainActivity : Activity() {
     private lateinit var tabButtons: List<Button>
     private lateinit var classLabel: TextView
     private lateinit var statusLabel: TextView
+    private lateinit var topBar: LinearLayout
     private var currentTab = 0
+    private var approvalWatcher: ApprovalWatcher? = null
+
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var pendingSnapshot: JSONObject? = null
+    private val renderPending = Runnable {
+        pendingSnapshot?.let { renderSnapshot(it) }
+    }
 
     private val prefs by lazy { getSharedPreferences("lan_config", MODE_PRIVATE) }
     private val client = LanClient(
@@ -351,11 +366,35 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        // targetSdk 36 在 Android 15+ 默认 edge-to-edge，需自行处理系统栏内边距
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         try {
-            setContentView(buildRoot())
+            val root = buildRoot()
+            setContentView(root)
+            applyWindowInsets(root)
         } catch (t: Throwable) {
             showCrash(t)
         }
+    }
+
+    /** 系统栏内边距：内容不再被状态栏/导航栏遮挡（targetSdk 36 强制 edge-to-edge）。 */
+    private fun applyWindowInsets(root: View) {
+        // 状态栏压在蓝色标题栏上 → 用白色图标；导航栏压在浅色页面上 → 用深色图标
+        WindowInsetsControllerCompat(window, root).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = true
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or
+                        WindowInsetsCompat.Type.displayCutout()
+            )
+            // 左右/底部留给页面，顶部让蓝色标题栏延伸到状态栏后面
+            view.updatePadding(left = bars.left, right = bars.right, bottom = bars.bottom)
+            topBar.updatePadding(top = dp2px(14) + bars.top)
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     override fun onStart() {
@@ -370,16 +409,29 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         client.stop()
+        approvalWatcher?.stop()
+        approvalWatcher = null
+        uiHandler.removeCallbacks(renderPending)
         super.onStop()
     }
 
     override fun onDestroy() {
         client.stop()
+        approvalWatcher?.stop()
+        approvalWatcher = null
+        uiHandler.removeCallbacks(renderPending)
         super.onDestroy()
     }
 
-    // 收到电脑端推送后刷新数据与页面
+    // 收到电脑端推送：200ms 防抖，避免连点加分导致界面狂闪
     private fun applySnapshot(json: JSONObject) {
+        if (!::pageContainer.isInitialized) return
+        pendingSnapshot = json
+        uiHandler.removeCallbacks(renderPending)
+        uiHandler.postDelayed(renderPending, 200)
+    }
+
+    private fun renderSnapshot(json: JSONObject) {
         if (!::pageContainer.isInitialized) return
         AppData.applySnapshot(json)
         classLabel.text = "  ·  ${AppData.className}"
@@ -405,6 +457,36 @@ class MainActivity : Activity() {
         if (url.isEmpty()) return
         updateStatus("连接中…", false)
         client.start(url)
+        startApprovalWatcher(url)
+    }
+
+    // 轮询电脑端“待手机确认”的重置请求
+    private fun startApprovalWatcher(base: String) {
+        approvalWatcher?.stop()
+        approvalWatcher = ApprovalWatcher(base) { id, title, detail ->
+            runOnUiThread { askApproval(id, title, detail) }
+        }.also { it.start() }
+    }
+
+    private fun askApproval(id: String, title: String, detail: String) {
+        if (isFinishing) return
+        val text = (if (title.isBlank()) "电脑端请求重置一个密钥" else title) +
+                (if (detail.isBlank()) "" else "\n\n" + detail) +
+                "\n\n只有你本人确认时才点击「同意」。"
+        try {
+            AlertDialog.Builder(this)
+                .setTitle("电脑端请求确认")
+                .setMessage(text)
+                .setPositiveButton("同意") { _, _ ->
+                    approvalWatcher?.postDecision(id, true)
+                }
+                .setNegativeButton("拒绝") { _, _ ->
+                    approvalWatcher?.postDecision(id, false)
+                }
+                .setCancelable(false)
+                .show()
+        } catch (_: Throwable) {
+        }
     }
 
     private fun updateStatus(text: String, ok: Boolean) {
@@ -485,7 +567,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor("#F5F6FA"))
         }
 
-        val topBar = LinearLayout(ctx).apply {
+        topBar = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(Color.parseColor("#1B5E8C"))
             setPadding(ctx.dp2px(16), ctx.dp2px(14), ctx.dp2px(16), ctx.dp2px(6))
@@ -1082,7 +1164,9 @@ class PieChartView(context: Context, private val data: List<Pair<String, Int>>) 
     private val itemH = context.dp2px(26); private val swSize = context.dp2px(14)
 
     private val desiredHeight: Int = run {
-        val pieSize = (context.resources.displayMetrics.widthPixels * 0.55f).toInt()
+        // 限制最大高度，防止平板/横屏下产出超出 Canvas 上限的位图而崩溃
+        val pieSize = minOf((context.resources.displayMetrics.widthPixels * 0.55f).toInt(),
+                            context.dp2px(300))
         context.dp2px(8) + pieSize + context.dp2px(12) + items.size * itemH + context.dp2px(8)
     }
 
@@ -1153,5 +1237,81 @@ class PieChartView(context: Context, private val data: List<Pair<String, Int>>) 
                 cy + valuePaint.textSize / 2f, valuePaint)
             textPaint.textAlign = Paint.Align.LEFT
         }
+    }
+}
+
+// ============================================================================
+// 手机端确认：轮询电脑端的“待确认”重置请求，用户点同意/拒绝后回传
+// ============================================================================
+class ApprovalWatcher(
+    private val base: String,
+    private val onAsk: (String, String, String) -> Unit
+) {
+    @Volatile private var running = true
+    private val seen = HashSet<String>()
+    private var thread: Thread? = null
+
+    fun start() {
+        thread = Thread {
+            while (running) {
+                try {
+                    val conn = (URL("$base/api/approvals/pending")
+                        .openConnection() as HttpURLConnection).apply {
+                        requestMethod = "GET"
+                        connectTimeout = 3_000
+                        readTimeout = 5_000
+                    }
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    conn.disconnect()
+                    val arr = JSONObject(body).optJSONArray("items") ?: JSONArray()
+                    for (i in 0 until arr.length()) {
+                        val item = arr.getJSONObject(i)
+                        val id = item.optString("id")
+                        if (id.isNotEmpty() && seen.add(id)) {
+                            onAsk(id, item.optString("title"), item.optString("detail"))
+                        }
+                    }
+                } catch (_: Throwable) {
+                    // 网络中断：下轮继续
+                }
+                try {
+                    Thread.sleep(2_000)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }.also {
+            it.isDaemon = true
+            it.start()
+        }
+    }
+
+    fun postDecision(id: String, approve: Boolean) {
+        Thread {
+            try {
+                val conn = (URL("$base/api/approvals/decide")
+                    .openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 3_000
+                    readTimeout = 5_000
+                    setRequestProperty("Content-Type", "application/json")
+                }
+                conn.outputStream.use {
+                    it.write("""{"id":"$id","approve":$approve}""".toByteArray())
+                }
+                conn.inputStream.close()
+                conn.disconnect()
+            } catch (_: Throwable) {
+            }
+        }.also {
+            it.isDaemon = true
+            it.start()
+        }
+    }
+
+    fun stop() {
+        running = false
+        thread?.interrupt()
     }
 }

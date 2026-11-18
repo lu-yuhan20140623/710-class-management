@@ -97,9 +97,12 @@ def student_is_custom(sid: str) -> bool:
 
 def student_verify(sid: str, key: str) -> bool:
     sid = str(sid)
+    key = str(key or "")
+    if not key:
+        return False
     rec = _load()["students"].get(sid)
     if not rec:
-        return key == sid        # 默认密钥 = 学号
+        return hmac.compare_digest(key, sid) if sid else False   # 默认密钥 = 学号
     return hmac.compare_digest(_hash(key, rec.get("salt", "")), rec.get("hash", ""))
 
 
@@ -160,7 +163,7 @@ def add_duty(sid: str, name: str, role: str, kind: str,
         _save(data)
     except OSError as e:
         return False, f"保存失败：{e}", None
-    return True, f"已任命 {name} 为「{role}」，专用密钥：{key}", duty
+    return True, f"已任命 {name} 为「{role}」，专用密钥：{key}", dict(duty, plain_key=key)
 
 
 def remove_duty(duty_id: str) -> tuple[bool, str]:
@@ -181,9 +184,10 @@ def find_duty(duty_id: str) -> dict | None:
 
 
 def duty_verify(duty: dict, key: str) -> bool:
-    if not duty:
+    key = str(key or "")
+    if not duty or not key:
         return False
-    return hmac.compare_digest(_hash(key or "", duty.get("salt", "")),
+    return hmac.compare_digest(_hash(key, duty.get("salt", "")),
                                duty.get("hash", ""))
 
 

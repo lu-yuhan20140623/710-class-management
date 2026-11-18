@@ -18,6 +18,7 @@
 数据都是只读的，手机端不需要密码；请只在可信的教室局域网内开启。
 """
 
+import ipaddress
 import json
 import queue
 import socket
@@ -27,9 +28,9 @@ import time
 from datetime import datetime, time as dt_time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-import schedule
+import schedule_core as schedule
 import score_records as store
 from version import VERSION
 
@@ -60,6 +61,61 @@ _watch_started = False
 
 _subscribers: set = set()
 _subscribers_lock = threading.Lock()
+
+# ===================== 手机端确认（重置密钥授权） =====================
+# 密钥重置不再仅凭“知道教师手机号”即可完成，必须由手机 App 点击“同意”。
+APPROVAL_TTL = 120          # 请求有效期（秒）
+_approvals: dict = {}
+_approval_lock = threading.RLock()
+_approval_seq = 0
+
+
+def _cleanup_approvals():
+    now = time.time()
+    with _approval_lock:
+        for rid, item in list(_approvals.items()):
+            if item["status"] == "pending" and now - item["created"] > APPROVAL_TTL:
+                item["status"] = "expired"
+            if now - item["created"] > APPROVAL_TTL * 5:
+                _approvals.pop(rid, None)
+
+
+def submit_approval(kind: str, title: str, detail: str = "") -> dict:
+    global _approval_seq
+    _cleanup_approvals()
+    with _approval_lock:
+        _approval_seq += 1
+        rid = f"{int(time.time())}-{_approval_seq}"
+        _approvals[rid] = {
+            "id": rid, "kind": kind, "title": title, "detail": detail,
+            "created": time.time(), "status": "pending",
+        }
+    return {"id": rid, "expires_in": APPROVAL_TTL}
+
+
+def pending_approvals() -> list:
+    _cleanup_approvals()
+    with _approval_lock:
+        return [{"id": it["id"], "kind": it["kind"], "title": it["title"],
+                 "detail": it["detail"]}
+                for it in _approvals.values() if it["status"] == "pending"]
+
+
+def decide_approval(rid: str, approve: bool) -> bool:
+    _cleanup_approvals()
+    with _approval_lock:
+        item = _approvals.get(rid)
+        if not item or item["status"] != "pending":
+            return False
+        item["status"] = "approved" if approve else "rejected"
+        return True
+
+
+def approval_status(rid: str) -> str:
+    _cleanup_approvals()
+    with _approval_lock:
+        item = _approvals.get(rid)
+        return item["status"] if item else "missing"
 
 
 # ===================== 基础工具 =====================
@@ -434,6 +490,7 @@ code{background:#232a3a;border-radius:5px;padding:2px 7px;font-family:Consolas,m
 <p><a href="/api/scores">/api/scores</a> · 小组积分</p>
 <p><a href="/api/hygiene">/api/hygiene</a> · 卫生扣分</p>
 <p><a href="/api/events">/api/events</a> · SSE 实时推送</p>
+<p><a href="/api/approvals/pending">/api/approvals/pending</a> · 待手机确认的重置请求</p>
 </div>
 <p style="margin-top:18px">提示：手机 App 可先请求 <code>/api/ping</code> 判断电脑是否在线，再订阅 <code>/api/events</code> 接收实时数据。</p>
 </div></body></html>"""
@@ -456,8 +513,15 @@ class _Handler(BaseHTTPRequestHandler):
     # ---- 响应工具 ----
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
+
+    def _is_local_client(self) -> bool:
+        """请求是否来自本机（127.0.0.1 / ::1）。"""
+        try:
+            return ipaddress.ip_address(self.client_address[0]).is_loopback
+        except (ValueError, IndexError):
+            return False
 
     def _send_json(self, obj, status_code: int = 200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -514,6 +578,44 @@ class _Handler(BaseHTTPRequestHandler):
                 self._send_json({"type": "hygiene", "class_name": cls, **_hygiene_view(cls)})
             elif path == "/api/events":
                 self._serve_events()
+            elif path == "/api/approvals/pending":
+                self._send_json({"items": pending_approvals()})
+            elif path == "/api/approvals/status":
+                rid = parse_qs(urlsplit(self.path).query).get("id", [""])[0]
+                self._send_json({"id": rid, "status": approval_status(rid)})
+            else:
+                self._send_json({"ok": False, "error": "not found", "path": path}, 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:
+            try:
+                self._send_json({"ok": False, "error": str(exc)}, 500)
+            except Exception:
+                pass
+
+    def do_POST(self):
+        path = (urlsplit(self.path).path or "/").rstrip("/") or "/"
+        if path == "/api/approvals" and not self._is_local_client():
+            # 只允许电脑本机发起确认请求，防止同网段他人伪造“重置密钥”弹窗骚扰手机
+            self._send_json({"ok": False, "error": "forbidden"}, 403)
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            payload = json.loads((raw or b"{}").decode("utf-8")) or {}
+        except (ValueError, OSError):
+            self._send_json({"ok": False, "error": "bad request"}, 400)
+            return
+        try:
+            if path == "/api/approvals":
+                res = submit_approval(str(payload.get("kind") or "reset"),
+                                      str(payload.get("title") or "重置密钥"),
+                                      str(payload.get("detail") or ""))
+                self._send_json({"ok": True, **res})
+            elif path == "/api/approvals/decide":
+                ok = decide_approval(str(payload.get("id") or ""),
+                                     bool(payload.get("approve")))
+                self._send_json({"ok": ok}, 200 if ok else 404)
             else:
                 self._send_json({"ok": False, "error": "not found", "path": path}, 404)
         except (BrokenPipeError, ConnectionResetError):

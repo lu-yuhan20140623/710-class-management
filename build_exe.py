@@ -34,7 +34,7 @@ APP_FILES = [
     "backend.py",
     "backend_service.py",
     "overlay_window.py",
-    "schedule.py",
+    "schedule_core.py",
     "auth.py",
     "autostart.py",
     "time_debug.py",

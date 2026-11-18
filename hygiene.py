@@ -53,8 +53,7 @@ def _load_json(path: Path, default):
 
 
 def save_data(data: dict):
-    with open(HYGIENE_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    store.atomic_write_json(HYGIENE_FILE, data)
 
 
 def load_data() -> dict:

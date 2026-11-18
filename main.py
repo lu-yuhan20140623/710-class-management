@@ -9,6 +9,7 @@
 
 import os
 import sys
+import threading
 
 # PyInstaller 打包后 Windows 默认 stdout 是 gbk，emoji print 会炸
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -80,6 +81,11 @@ def main():
     else:
         print(f"[课程表] 开机自启：{msg}")
 
+    # 1.5 上次改过系统时间但没恢复（崩溃/断电/强杀）→ 启动时自动校正
+    if time_debug.time_was_modified():
+        print("[课程表] 上次修改的系统时间未恢复，正在后台尝试校正…")
+        threading.Thread(target=time_debug.auto_restore_if_needed, daemon=True).start()
+
     # 2. 本地 backend 线程 —— 仅负责右侧面板和网格高亮刷新
     #    overlay_window.py 的拉起由独立的 backend_service.py 负责
     backend = BackendService(tick_interval=0.5)
@@ -138,7 +144,8 @@ def main():
     # 4. 关闭钩子
     def on_close():
         # 若调时间工具改过系统时间，关窗时恢复
-        if getattr(ui, "_system_time_modified", False):
+        if (getattr(ui, "_system_time_modified", False)
+                or getattr(root, "_system_time_modified", False)):
             try:
                 messagebox.showinfo("恢复系统时间",
                                     "检测到系统时间已被临时修改，正在恢复为北京时间…",

@@ -159,6 +159,7 @@ disabled_ranges.json
 .ball.pid
 .pwd_request.json
 .pwd_response.json
+time_modified.marker
 .open_score.request
 .show_ball.request
 plugins_data/
@@ -173,4 +174,21 @@ logs/
 # 打包 / 安装产物
 installer/
 patch_*.zip
+
+# 安装包 / 压缩包（体积大，不入库）
+timetable.zip
+plugin_package.zip
+*.apk
+
+# 身份数据（含教师手机号、学生与值日生密钥）
+roles.json
+
+# 手机端工程构建产物
+timetable/app/build/
+timetable/build/
+timetable/.gradle/
+timetable/.idea/
+timetable/.platform/
+timetable/.kotlin/
+timetable/local.properties
 

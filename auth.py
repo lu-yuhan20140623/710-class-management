@@ -1,6 +1,6 @@
 """
 密钥管理：SHA256 + 随机 salt，持久化到 password.json
-- 默认密码 "1"
+- 默认密码 "710"
 - 后台进程（backend_service.py）启动后按“允许读、禁止写/删/改名”的方式锁住
   password.json，防止被篡改后静默回退到默认密码
 - GUI 不再直接写密码文件：修改密钥通过请求文件交给后台进程执行
@@ -23,7 +23,7 @@ else:
 PW_FILE = APP_DIR / "password.json"
 PW_REQUEST = APP_DIR / ".pwd_request.json"
 PW_RESPONSE = APP_DIR / ".pwd_response.json"
-DEFAULT_PASSWORD = "1"
+DEFAULT_PASSWORD = "710"
 PW_CHANGE_TIMEOUT = 6.0
 
 # 后台进程持有的锁定句柄（仅 backend_service.py 内有值）
@@ -91,7 +91,7 @@ def verify(password: str) -> bool:
 
 
 def is_default() -> bool:
-    """当前是否还是默认密码 '1'。"""
+    """当前是否还是默认密码 '710'。"""
     return verify(DEFAULT_PASSWORD)
 
 

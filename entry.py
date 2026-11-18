@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import tkinter as tk
+import urllib.request
 from tkinter import ttk, messagebox
 from pathlib import Path
 
@@ -17,7 +19,7 @@ import roles
 
 from ui import (BG_MAIN, BG_PANEL, BG_CELL, BG_CELL_ALT, BG_IN_CLASS,
                 FG_TEXT, FG_DIM, FG_ACCENT, FG_DANGER, FG_WARN, FG_OK,
-                center_window, fit_geometry)
+                fit_geometry, dpi_scale)
 
 if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).parent.resolve()
@@ -28,6 +30,18 @@ STUDENT_FILE = APP_DIR / "student_data.txt"
 FONT = "Microsoft YaHei UI"
 ROLE_NAMES = ["值日长", "卫生长"]
 ROLE_KINDS = {"值日长": roles.KIND_SCORE, "卫生长": roles.KIND_HYGIENE}
+
+
+def _maximize(win, min_width=0, min_height=0):
+    """登录相关窗口：允许调整大小并默认最大化。"""
+    win.resizable(True, True)
+    if min_width or min_height:
+        win.minsize(min_width, min_height)
+    try:
+        win.state("zoomed")
+    except tk.TclError:
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry(f"{sw}x{sh}+0+0")
 
 
 def _load_json(path: Path, default):
@@ -65,12 +79,15 @@ class _Dialog:
         self.win = tk.Toplevel(parent)
         self.win.title(title)
         self.win.configure(bg=BG_MAIN)
-        self.win.resizable(False, False)
-        center_window(self.win, parent, width, height)
-        self.win.transient(parent)
+        k = dpi_scale(self.win)
+        # 不设 transient：Windows 下被拥有的窗口无法最大化
+        _maximize(self.win, int((width + 60) * k), int((height + 60) * k))
         self.win.grab_set()
-        self.body = tk.Frame(self.win, bg=BG_MAIN)
-        self.body.pack(fill=tk.BOTH, expand=True, padx=18, pady=16)
+        holder = tk.Frame(self.win, bg=BG_MAIN)
+        holder.pack(fill=tk.BOTH, expand=True)
+        # 窗口最大化后表单仍保持居中、固定宽度，避免输入框被拉得过宽
+        self.body = tk.Frame(holder, bg=BG_MAIN, padx=18, pady=16)
+        self.body.place(relx=0.5, rely=0.5, anchor="center", width=int(width * k))
 
     def _label(self, text, row, color=FG_TEXT, size=10):
         tk.Label(self.body, text=text, font=(FONT, size), bg=BG_MAIN, fg=color,
@@ -89,11 +106,13 @@ class _Dialog:
         tk.Button(bar, text="取消", command=self.win.destroy, font=(FONT, 10),
                   bg=BG_CELL, fg=FG_TEXT, relief=tk.FLAT, padx=14, pady=5,
                   cursor="hand2").pack(side=tk.RIGHT, padx=(8, 0))
-        tk.Button(bar, text=primary_text, command=primary_cmd, font=(FONT, 10, "bold"),
-                  bg=BG_IN_CLASS, fg=FG_TEXT, relief=tk.FLAT, padx=16, pady=5,
-                  cursor="hand2").pack(side=tk.RIGHT)
+        btn = tk.Button(bar, text=primary_text, command=primary_cmd, font=(FONT, 10, "bold"),
+                        bg=BG_IN_CLASS, fg=FG_TEXT, relief=tk.FLAT, padx=16, pady=5,
+                        cursor="hand2")
+        btn.pack(side=tk.RIGHT)
         self.body.columnconfigure(0, weight=1)
         self.body.columnconfigure(1, weight=1)
+        return btn
 
 
 class ChangeKeyDialog(_Dialog):
@@ -132,19 +151,66 @@ class ChangeKeyDialog(_Dialog):
             messagebox.showwarning("修改密钥", msg, parent=self.win)
 
 
-class PhoneResetDialog(_Dialog):
-    """忘记密钥：手机号 + 新密钥（无需验证码）。"""
+def _lan_base() -> str:
+    try:
+        import lan_server
+        return f"http://127.0.0.1:{lan_server.configured_port()}"
+    except Exception:
+        return "http://127.0.0.1:8765"
 
-    def __init__(self, parent, title, reset_fn):
+
+def _http_json(url: str, payload=None, timeout=3):
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def mobile_approval_request(title: str, detail: str) -> str:
+    """向后台服务登记一条“待手机确认”的重置请求，返回请求 id（失败返回空串）。"""
+    try:
+        res = _http_json(_lan_base() + "/api/approvals",
+                         {"kind": "reset", "title": title, "detail": detail})
+        return str(res.get("id") or "") if res.get("ok") else ""
+    except Exception:
+        return ""
+
+
+def mobile_approval_status(rid: str) -> str:
+    try:
+        res = _http_json(_lan_base() + f"/api/approvals/status?id={rid}", timeout=2)
+        return str(res.get("status") or "missing")
+    except Exception:
+        return "offline"
+
+
+class PhoneResetDialog(_Dialog):
+    """忘记密钥：手机号 + 新密钥。
+
+    所有身份（教师 / 学生 / 值日生）的密钥重置，都必须再由手机 App 点击“同意”才生效。
+    """
+
+    def __init__(self, parent, title, reset_fn, approval_title="", approval_detail=""):
         self._reset = reset_fn
-        super().__init__(parent, title, 440, 320)
+        self._approval_title = approval_title
+        self._approval_detail = approval_detail
+        self._rid = ""
+        self._phone = ""
+        self._new = ""
+        self._deadline = 0.0
+        super().__init__(parent, title, 440, 360)
         self._label("教师绑定的手机号", 0, FG_DIM)
         self.e_phone = self._entry(1)
         self._label("新密钥", 2)
         self.e_new = self._entry(3, show="*")
         self._label("确认新密钥", 4)
         self.e_new2 = self._entry(5, show="*")
-        self._buttons(6, "重置", self._on_reset)
+        self.hint = tk.Label(self.body, text="", font=(FONT, 9), bg=BG_MAIN,
+                             fg=FG_WARN, anchor="w", justify="left",
+                             wraplength=int(400 * dpi_scale(self.win)))
+        self.hint.grid(row=6, column=0, columnspan=2, sticky="ew")
+        self.btn = self._buttons(7, "重置", self._on_reset)
         self.win.wait_window()
 
     def _on_reset(self):
@@ -158,13 +224,59 @@ class PhoneResetDialog(_Dialog):
         if new != new2:
             messagebox.showwarning("重置密钥", "两次输入的新密钥不一致", parent=self.win)
             return
+        if not self._approval_title:
+            self._apply(phone, new)
+            return
+
+        if not roles.verify_phone(phone):
+            messagebox.showwarning("重置密钥", "手机号与教师绑定的号码不一致", parent=self.win)
+            return
+        rid = mobile_approval_request(self._approval_title, self._approval_detail)
+        if not rid:
+            messagebox.showwarning(
+                "重置密钥",
+                "无法发起手机确认：后台服务未启动或手机端未连接。\n"
+                "请先在手机 App 中保持连接后重试。", parent=self.win)
+            return
+        self._rid, self._phone, self._new = rid, phone, new
+        self._deadline = time.time() + 120
+        self.btn.config(state=tk.DISABLED, text="等待手机确认…")
+        self.hint.config(text="已发送确认请求，请在手机 App 中点击「同意」。", fg=FG_WARN)
+        self.win.after(600, self._poll)
+
+    def _poll(self):
+        if not self.win.winfo_exists():
+            return
+        status = mobile_approval_status(self._rid)
+        if status == "approved":
+            self._apply(self._phone, self._new)
+            return
+        if status == "rejected":
+            self._retry("手机端已拒绝本次重置，密钥未修改。")
+            return
+        if status in ("expired", "missing"):
+            self._retry("手机确认已超时，请重新发起。")
+            return
+        if status == "offline":
+            self._retry("与后台服务的连接中断，请确认手机端在线后重试。")
+            return
+        if time.time() > self._deadline:
+            self._retry("等待手机确认超时，请重新发起。")
+            return
+        self.win.after(700, self._poll)
+
+    def _retry(self, msg: str):
+        self.btn.config(state=tk.NORMAL, text="重置")
+        self.hint.config(text=msg, fg=FG_DANGER)
+
+    def _apply(self, phone, new):
         ok, msg = self._reset(phone, new)
         if ok:
             messagebox.showinfo("重置密钥", msg, parent=self.win)
             self.ok = True
             self.win.destroy()
         else:
-            messagebox.showwarning("重置密钥", msg, parent=self.win)
+            self._retry(msg)
 
 
 # ===================== 登录对话框 =====================
@@ -206,7 +318,10 @@ class TeacherLoginDialog(_Dialog):
             messagebox.showinfo("忘记密钥", "尚未绑定手机号，请联系管理员或重装后使用初始密钥 710。",
                                 parent=self.win)
             return
-        d = PhoneResetDialog(self.win, "教师端 · 重置密钥", auth.reset_password_by_phone)
+        d = PhoneResetDialog(
+            self.win, "教师端 · 重置密钥", auth.reset_password_by_phone,
+            approval_title="重置教师密钥",
+            approval_detail="电脑端发起了教师密钥重置，同意后新密钥立即生效。")
         if d.ok:
             messagebox.showinfo("重置密钥", "教师密钥已重置，请用新密钥登录。", parent=self.win)
 
@@ -305,6 +420,8 @@ class StudentLoginDialog(_Dialog):
         PhoneResetDialog(
             self.win, f"{name} · 重置学生密钥",
             lambda phone, new, s=sid: roles.student_reset_with_phone(s, phone, new),
+            approval_title=f"重置学生密钥：{name}",
+            approval_detail=f"班级：{self.cb_class.get()}\n学生：{sid} {name}",
         )
 
 
@@ -342,9 +459,11 @@ class DutyLoginDialog(_Dialog):
         tk.Button(bar, text="忘记密钥", command=self._forgot, font=(FONT, 9),
                   bg=BG_PANEL, fg=FG_WARN, relief=tk.FLAT, padx=10, pady=5,
                   cursor="hand2").pack(side=tk.LEFT)
-        tk.Button(bar, text="进入", command=self._on_login, font=(FONT, 10, "bold"),
-                  bg=BG_IN_CLASS, fg=FG_TEXT, relief=tk.FLAT, padx=18, pady=5,
-                  cursor="hand2").pack(side=tk.RIGHT)
+        self.btn_login = tk.Button(bar, text="进入", command=self._on_login,
+                                   font=(FONT, 10, "bold"),
+                                   bg=BG_IN_CLASS, fg=FG_TEXT, relief=tk.FLAT,
+                                   padx=18, pady=5, cursor="hand2")
+        self.btn_login.pack(side=tk.RIGHT)
         self.body.columnconfigure(0, weight=1)
         self.body.columnconfigure(1, weight=1)
         self._fill_duties()
@@ -368,6 +487,8 @@ class DutyLoginDialog(_Dialog):
         else:
             self.cb_duty.set("")
             self.lbl_name.config(text=f"{name}（暂无值日生任命）")
+        self.btn_login.config(
+            state=tk.NORMAL if self._duty_list else tk.DISABLED)
 
     def _pick_duty(self):
         idx = self.cb_duty.current()
@@ -397,6 +518,10 @@ class DutyLoginDialog(_Dialog):
         PhoneResetDialog(
             self.win, f"{duty['name']} · 重置值日生密钥",
             lambda phone, new, d=duty["id"]: roles.duty_reset_with_phone(d, phone, new),
+            approval_title=f"重置值日生密钥：{duty['name']}",
+            approval_detail=(f"班级：{self._current_student()[0]}\n"
+                             f"学生：{duty['sid']} {duty['name']}\n"
+                             f"职务：{duty['role']}"),
         )
 
 
@@ -409,17 +534,20 @@ class EntryWindow:
         self.win = tk.Toplevel(root)
         self.win.title("课程表 · 选择身份")
         self.win.configure(bg=BG_MAIN)
-        self.win.resizable(False, False)
-        center_window(self.win, root, 620, 540)
+        _maximize(self.win, 640, 560)
         self.win.protocol("WM_DELETE_WINDOW", self._cancel)
         self.win.grab_set()
 
-        tk.Label(self.win, text="课程表", font=(FONT, 26, "bold"),
+        panel = tk.Frame(self.win, bg=BG_MAIN)
+        panel.place(relx=0.5, rely=0.5, anchor="center",
+                    width=int(760 * dpi_scale(self.win)))
+
+        tk.Label(panel, text="课程表", font=(FONT, 26, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(28, 2))
-        tk.Label(self.win, text="请选择进入的身份", font=(FONT, 11),
+        tk.Label(panel, text="请选择进入的身份", font=(FONT, 11),
                  bg=BG_MAIN, fg=FG_DIM).pack(pady=(0, 16))
 
-        grid = tk.Frame(self.win, bg=BG_MAIN)
+        grid = tk.Frame(panel, bg=BG_MAIN)
         grid.pack(padx=26, pady=4, fill=tk.BOTH, expand=True)
         cards = [
             ("👨‍🏫", "教师端", "进入主界面，需要教师密钥", self._teacher),
@@ -437,7 +565,7 @@ class EntryWindow:
             tk.Label(inner, text=title, font=(FONT, 13, "bold"), bg=BG_PANEL,
                      fg=FG_TEXT).pack(anchor="w", pady=(4, 0))
             tk.Label(inner, text=desc, font=(FONT, 9), bg=BG_PANEL, fg=FG_DIM,
-                     wraplength=220, justify="left").pack(anchor="w", pady=(2, 0))
+                     wraplength=300, justify="left").pack(anchor="w", pady=(2, 0))
             for w in (card, inner, *inner.winfo_children()):
                 w.bind("<Button-1>", lambda e, c=cmd: c())
         grid.columnconfigure(0, weight=1)
@@ -445,7 +573,7 @@ class EntryWindow:
         for r in range(2):
             grid.rowconfigure(r, weight=1)
 
-        tk.Label(self.win, text="教师初始密钥 710 · 忘记密钥可用教师手机号重置",
+        tk.Label(panel, text="教师初始密钥 710 · 忘记密钥可用教师手机号重置",
                  font=(FONT, 8), bg=BG_MAIN, fg=FG_DIM).pack(side=tk.BOTTOM, pady=10)
 
         self.win.wait_window()
@@ -515,7 +643,8 @@ def open_target(root, mode, payload):
             return win
         from plugins.role_portal import StudentPortalWindow
         portal = StudentPortalWindow(ctx, class_name=payload.get("cls"),
-                                     sid=payload.get("sid"))
+                                     sid=payload.get("sid"),
+                                     allow_switch=False)
         _bind_close(portal.win, root, extra=portal.close)
         return portal.win
 
@@ -575,7 +704,7 @@ class ScheduleViewer:
     DAYS = ["周一", "周二", "周三", "周四", "周五"]
 
     def __init__(self, parent):
-        import schedule as sch
+        import schedule_core as sch
         win = tk.Toplevel(parent)
         win.title("课程表（只读）")
         win.configure(bg=BG_MAIN)
@@ -634,7 +763,22 @@ class DutyAdminWindow:
         body = tk.Frame(self.win, bg=BG_PANEL)
         body.pack(fill=tk.BOTH, expand=True, padx=18, pady=10)
         cols = ("name", "role", "kind", "key")
-        self.tree = ttk.Treeview(body, columns=cols, show="headings", height=9)
+        style = ttk.Style()
+        style.configure("Duty.Treeview", background=BG_CELL, fieldbackground=BG_CELL,
+                        foreground=FG_TEXT, borderwidth=0,
+                        rowheight=max(24, int(28 * dpi_scale(self.win))),
+                        font=(FONT, 10))
+        style.configure("Duty.Treeview.Heading", background=BG_CELL_ALT,
+                        foreground=FG_ACCENT, relief=tk.FLAT,
+                        font=(FONT, 10, "bold"))
+        style.map("Duty.Treeview",
+                  background=[("selected", "#2f5f8f")],
+                  foreground=[("selected", FG_TEXT)])
+        style.map("Duty.Treeview.Heading",
+                  background=[("active", BG_CELL_ALT)],
+                  foreground=[("active", FG_ACCENT)])
+        self.tree = ttk.Treeview(body, columns=cols, show="headings", height=9,
+                                 style="Duty.Treeview")
         for col, text, width in (("name", "姓名", 120), ("role", "职务", 160),
                                  ("kind", "类型", 120), ("key", "密钥", 110)):
             self.tree.heading(col, text=text)
@@ -728,13 +872,56 @@ class DutyAdminWindow:
             messagebox.showwarning("值日生任命", "请选择学生", parent=self.win)
             return
         _cls, sid, name = self._flat[idx]
-        ok, msg, _duty = roles.add_duty(sid, name, self.cb_role.get(),
-                                        self._kind_value(), self.e_key.get())
-        messagebox.showinfo("值日生任命", msg, parent=self.win) if ok else \
+        ok, msg, duty = roles.add_duty(sid, name, self.cb_role.get(),
+                                       self._kind_value(), self.e_key.get())
+        if not ok:
             messagebox.showwarning("值日生任命", msg, parent=self.win)
-        if ok:
-            self.e_key.delete(0, tk.END)
-            self._refresh()
+            return
+        self.e_key.delete(0, tk.END)
+        self._refresh()
+        key = (duty or {}).get("plain_key")
+        if key:
+            self._show_key(name, self.cb_role.get(), key)
+        else:
+            messagebox.showinfo("值日生任命", msg, parent=self.win)
+
+    def _show_key(self, name, role, key):
+        """任命成功：展示自动生成的密钥，并支持一键复制。"""
+        top = tk.Toplevel(self.win)
+        top.title("任命成功")
+        top.configure(bg=BG_MAIN)
+        top.resizable(False, False)
+        k = dpi_scale(top)
+        top.geometry(f"{int(460 * k)}x{int(250 * k)}"
+                     f"+{self.win.winfo_rootx() + int(120 * k)}"
+                     f"+{self.win.winfo_rooty() + int(120 * k)}")
+        top.grab_set()
+        tk.Label(top, text=f"已任命 {name} 为「{role}」", font=(FONT, 12, "bold"),
+                 bg=BG_MAIN, fg=FG_OK).pack(pady=(18, 6))
+        tk.Label(top, text="专用密钥（仅显示这一次，请转告本人）", font=(FONT, 9),
+                 bg=BG_MAIN, fg=FG_DIM).pack()
+        row = tk.Frame(top, bg=BG_MAIN)
+        row.pack(pady=12)
+        ent = tk.Entry(row, font=(FONT, 18, "bold"), bg=BG_CELL, fg=FG_ACCENT,
+                       justify="center", relief=tk.FLAT, width=9)
+        ent.insert(0, key)
+        ent.config(state="readonly")
+        ent.pack(side=tk.LEFT, ipady=6)
+        copy_btn = tk.Button(row, text="复制", font=(FONT, 10), bg=BG_CELL,
+                             fg=FG_TEXT, relief=tk.FLAT, padx=12, pady=6,
+                             cursor="hand2")
+
+        def copy():
+            top.clipboard_clear()
+            top.clipboard_append(key)
+            copy_btn.config(text="已复制")
+
+        copy_btn.config(command=copy)
+        copy_btn.pack(side=tk.LEFT, padx=(8, 0))
+        tk.Button(top, text="知道了", command=top.destroy, font=(FONT, 10, "bold"),
+                  bg=BG_IN_CLASS, fg=FG_TEXT, relief=tk.FLAT, padx=18, pady=5,
+                  cursor="hand2").pack()
+        top.wait_window()
 
     def _reset_key(self):
         duty = self._selected()

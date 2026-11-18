@@ -13,7 +13,7 @@ from pathlib import Path
 import os
 import threading
 
-import schedule as sch
+import schedule_core as sch
 import autostart
 import auth
 
@@ -372,8 +372,6 @@ class ScheduleUI:
 
         def do_edit():
             self._dismiss_menu()
-            if not AskPasswordDialog(self.root, "修改科目需要密钥").result:
-                return
             new_val = simpledialog.askstring(
                 "临时调课",
                 f"{sch.WEEKDAY_NAMES[day]} 第{period}节\n当前：{subject}\n输入新科目（留空=清除）：",
@@ -389,8 +387,6 @@ class ScheduleUI:
 
         def do_clear():
             self._dismiss_menu()
-            if not AskPasswordDialog(self.root, "清除调课需要密钥").result:
-                return
             if not messagebox.askyesno("确认", f"清除 {sch.WEEKDAY_NAMES[day]} 第{period}节的调课？", parent=self.root):
                 return
             self.backend.override(day, period, "")
@@ -686,15 +682,11 @@ class ScheduleUI:
             btn.pack(side=tk.LEFT, padx=4, pady=2)
 
     def _open_student_score(self):
-        """学生积分（嵌入模块）：进入需密钥，窗口与主界面同一深色主题。"""
-        if not AskPasswordDialog(self.root, "进入学生积分需要密钥").result:
-            return
+        """学生积分（嵌入模块）：已通过教师端登录，不再重复要密钥。"""
         self._show_student_score(readonly=False)
 
     def _open_hygiene(self):
-        """卫生管理：只记卫生扣分、不计入积分，进入需密钥。"""
-        if not AskPasswordDialog(self.root, "进入卫生管理需要密钥").result:
-            return
+        """卫生管理：只记卫生扣分、不计入积分。"""
         win = getattr(self.root, "_hygiene_window", None)
         if win is not None and win.winfo_exists():
             win.deiconify()
@@ -727,7 +719,7 @@ class ScheduleUI:
             text = version_manager.describe()
         except Exception as exc:
             text = f"无法读取版本信息：{exc}"
-        text += ("\n\n开发者名单：陆瑜瀚\n"
+        text += ("\n\n开发者名单：陆瑜瀚、杨皓文、刘骁、Trae-Solo-Agent、DeepSeek-V4.1-Flash\n"
                  "项目地址：https://gitee.com/lu-yuhan20140623/710")
         messagebox.showinfo("版本信息", text, parent=self.root)
 
@@ -794,8 +786,6 @@ class ScheduleUI:
 
     # ========== 调试工具 ==========
     def _open_debug_tool(self):
-        if not AskPasswordDialog(self.root, "打开调试工具需要密钥").result:
-            return
         TimeDebugDialog(self.root)
 
     def _open_lan(self):
@@ -805,9 +795,9 @@ class ScheduleUI:
 
 class TimeDebugDialog:
     """
-    时间调试工具 —— 设完系统时间后 os._exit(0) 让自己退出，
-    方便观察 backend_service.py 是否自动拉起 overlay_window.py。
-    另提供"恢复北京时间"按钮（不退出）。
+    时间调试工具 —— 临时修改系统时间，用于观察 backend_service.py
+    是否按预期拉起 overlay_window.py。修改后不退出进程，
+    关闭主窗口时自动恢复北京时间，避免系统时钟被永久改坏。
     """
 
     def __init__(self, parent):
@@ -895,7 +885,32 @@ class TimeDebugDialog:
         row = tk.Frame(self.win, bg=BG_MAIN)
         row.pack(fill=tk.X, padx=18, pady=(4, 4))
 
-        def apply_and_exit():
+        def run_async(fn, ok_text, fail_prefix):
+            """set/restore 可能弹 UAC，放到后台线程，避免卡死 Tk 主线程。"""
+            for b in (btn_set, btn_restore):
+                b.config(state=tk.DISABLED)
+            self._status("正在处理…若弹出 UAC，请点击「是」", FG_WARN)
+
+            def worker():
+                try:
+                    ok, msg = fn()
+                except Exception as exc:          # pragma: no cover
+                    ok, msg = False, str(exc)
+
+                def done():
+                    if not self.win.winfo_exists():
+                        return
+                    for b in (btn_set, btn_restore):
+                        b.config(state=tk.NORMAL)
+                    if ok:
+                        self._status(ok_text(msg), "#66cc88")
+                    else:
+                        self._status(fail_prefix + msg, FG_DANGER)
+                self.win.after(0, done)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def apply_time():
             text = self.entry.get().strip()
             target = None
             for fmt in ("%H:%M:%S", "%H:%M", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S"):
@@ -910,36 +925,36 @@ class TimeDebugDialog:
             if len(text) <= 8:
                 target = dt_cls.combine(dt_cls.now().date(), target.time())
 
-            self._status("正在设置系统时间…本进程即将退出", FG_WARN)
-            self.win.update_idletasks()
-            ok, msg = time_debug.set_system_time(target)
-            if ok:
-                self._status("✓ " + msg + "\n本进程退出后观察 backend 是否拉起 overlay", "#66cc88")
-                self.win.after(800, lambda: self._commit_suicide())
-            else:
-                self._status("✗ " + msg, FG_DANGER)
+            def success(msg):
+                # 关闭主窗口时由 main.on_close 恢复北京时间，绝不静默遗留错误时钟
+                self.root._system_time_modified = True
+                return ("✓ " + msg +
+                        "\n后端会按新时间拉起 overlay；关闭主窗口即自动恢复北京时间")
+
+            run_async(lambda: time_debug.set_system_time(target),
+                      success, "✗ ")
 
         def restore_beijing():
-            self._status("正在获取北京时间…", FG_DIM)
-            self.win.update_idletasks()
-            ok, msg = time_debug.restore_beijing_time()
-            if ok:
-                self._status("✓ " + msg + "\n系统时间已恢复，现在是北京时间", "#66cc88")
-            else:
-                self._status("✗ " + msg, FG_DANGER)
+            def success(msg):
+                self.root._system_time_modified = False
+                return "✓ " + msg + "\n系统时间已恢复，现在是北京时间"
 
-        tk.Button(row, text="🎯 设置系统时间并退出", command=apply_and_exit,
-                  bg="#8b5a2b", fg=FG_TEXT, activebackground=BG_PREBELL,
-                  relief=tk.FLAT, font=("Microsoft YaHei UI", 11, "bold"),
-                  padx=14, pady=8, cursor="hand2").pack(fill=tk.X, pady=(0, 6))
-        tk.Button(row, text="🔄 恢复北京时间（不退出）", command=restore_beijing,
-                  bg=BG_IN_CLASS, fg=FG_TEXT, activebackground="#4b7b4b",
-                  relief=tk.FLAT, font=("Microsoft YaHei UI", 10),
-                  padx=14, pady=6, cursor="hand2").pack(fill=tk.X)
+            run_async(time_debug.restore_beijing_time, success, "✗ ")
+
+        btn_set = tk.Button(row, text="🎯 设置系统时间", command=apply_time,
+                            bg="#8b5a2b", fg=FG_TEXT, activebackground=BG_PREBELL,
+                            relief=tk.FLAT, font=("Microsoft YaHei UI", 11, "bold"),
+                            padx=14, pady=8, cursor="hand2")
+        btn_set.pack(fill=tk.X, pady=(0, 6))
+        btn_restore = tk.Button(row, text="🔄 恢复北京时间", command=restore_beijing,
+                                bg=BG_IN_CLASS, fg=FG_TEXT, activebackground="#4b7b4b",
+                                relief=tk.FLAT, font=("Microsoft YaHei UI", 10),
+                                padx=14, pady=6, cursor="hand2")
+        btn_restore.pack(fill=tk.X)
 
         tk.Label(self.win,
                  text="提示：设置时间为系统级操作，普通用户会弹 UAC 确认。\n"
-                      "关闭主窗口也会自动恢复北京时间。",
+                      "修改后关闭主窗口会自动恢复北京时间。",
                  font=("Microsoft YaHei UI", 8),
                  bg=BG_MAIN, fg=FG_DIM, justify=tk.LEFT)\
             .pack(anchor=tk.W, padx=18, pady=(10, 14))
@@ -988,15 +1003,6 @@ class TimeDebugDialog:
         except Exception:
             pass
         self.win.after(500, self._tick)
-
-    def _commit_suicide(self):
-        """让本进程自己结束，好让 backend_service.py 有机会拉 overlay。"""
-        try:
-            self.win.destroy()
-        except Exception:
-            pass
-        import os
-        os._exit(0)
 
 
 class SettingsDialog:
@@ -1155,8 +1161,6 @@ class SettingsDialog:
                  font=("Microsoft YaHei UI", 9)).grid(row=0, column=4, sticky="w")
 
         def do_add():
-            if not AskPasswordDialog(self.win, "添加禁用时间段需要密钥").result:
-                return
             try:
                 s = datetime.strptime(e_start.get().strip(), "%Y-%m-%d %H:%M")
                 e = datetime.strptime(e_end.get().strip(), "%Y-%m-%d %H:%M")
@@ -1176,8 +1180,6 @@ class SettingsDialog:
         def do_remove():
             sel = tree.selection()
             if not sel:
-                return
-            if not AskPasswordDialog(self.win, "删除禁用时间段需要密钥").result:
                 return
             idx = tree.index(sel[0])
             if self.backend.remove_disabled_range(idx):
@@ -1226,8 +1228,6 @@ class SettingsDialog:
             sel = tree.selection()
             if not sel:
                 return
-            if not AskPasswordDialog(self.win, "清除调课需要密钥").result:
-                return
             idx = tree.index(sel[0])
             overrides = self.backend.get_all_overrides()
             k = list(overrides.keys())[idx]
@@ -1238,8 +1238,6 @@ class SettingsDialog:
             self.ui._set_status("已清除调课")
 
         def do_clear_all():
-            if not AskPasswordDialog(self.win, "清除全部调课需要密钥").result:
-                return
             if not messagebox.askyesno("确认", "清除全部临时调课？", parent=self.win):
                 return
             for k in list(self.backend.get_all_overrides().keys()):
@@ -1269,7 +1267,7 @@ class SettingsDialog:
                  font=("Microsoft YaHei UI", 12, "bold"),
                  bg=BG_PANEL, fg=FG_ACCENT).pack(anchor=tk.W, padx=14, pady=(14, 2))
 
-        status_text = "当前密码：默认（1），建议尽快修改" if auth.is_default() else "当前密码：已自定义"
+        status_text = "当前密钥：默认（710），建议尽快修改" if auth.is_default() else "当前密钥：已自定义"
         status_fg = FG_WARN if auth.is_default() else FG_OK
         self._pw_status = tk.Label(tab, text=status_text, font=("Microsoft YaHei UI", 9),
                                    bg=BG_PANEL, fg=status_fg)
@@ -1332,9 +1330,9 @@ class SettingsDialog:
                         e.delete(0, tk.END)
                     # 只刷新状态文字：原先销毁整页再 nb.add 会多出一个空的“密钥管理”选项卡
                     if auth.is_default():
-                        self._pw_status.config(text="当前密码：默认（1），建议尽快修改", fg=FG_WARN)
+                        self._pw_status.config(text="当前密钥：默认（710），建议尽快修改", fg=FG_WARN)
                     else:
-                        self._pw_status.config(text="当前密码：已自定义", fg=FG_OK)
+                        self._pw_status.config(text="当前密钥：已自定义", fg=FG_OK)
                 else:
                     msg.config(text=f"✗ {reason}", fg=FG_DANGER)
 
@@ -1590,10 +1588,13 @@ def _apply_ttk_theme(root):
                     fieldbackground=BG_CELL, rowheight=26,
                     font=("Microsoft YaHei UI", 10))
     style.configure("Treeview.Heading",
-                    background=BG_PANEL, foreground=FG_DIM,
+                    background=BG_PANEL, foreground=FG_ACCENT,
                     font=("Microsoft YaHei UI", 9, "bold"))
-    style.map("Treeview", background=[("selected", BG_COUNTING)],
+    style.map("Treeview", background=[("selected", "#2f5f8f")],
               foreground=[("selected", FG_TEXT)])
+    style.map("Treeview.Heading",
+              background=[("active", BG_CELL_ALT)],
+              foreground=[("active", FG_ACCENT)])
     # 下拉框 / 滚动条暗色适配（学生积分模块使用）
     style.configure("TCombobox",
                     fieldbackground=BG_CELL, background=BG_PANEL,

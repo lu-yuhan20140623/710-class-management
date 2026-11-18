@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-import schedule as sch
+import schedule_core as sch
 import auth
 import instance_guard
 import score_records

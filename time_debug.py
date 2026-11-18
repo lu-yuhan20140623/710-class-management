@@ -10,9 +10,44 @@ import base64
 import ctypes
 import json
 import subprocess
+import sys
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from pathlib import Path
+
+# 记录“系统时间被临时改过、还没恢复”：程序崩溃/断电后下次启动据此自动校正
+if getattr(sys, "frozen", False):
+    _MARKER = Path(sys.executable).parent / "time_modified.marker"
+else:
+    _MARKER = Path(__file__).parent / "time_modified.marker"
+
+
+def _mark_modified():
+    try:
+        _MARKER.write_text(datetime.now().isoformat(timespec="seconds"), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _clear_marker():
+    try:
+        _MARKER.unlink()
+    except OSError:
+        pass
+
+
+def time_was_modified() -> bool:
+    """上次改过系统时间却没能恢复（崩溃、断电、强杀进程）。"""
+    return _MARKER.exists()
+
+
+def auto_restore_if_needed() -> str | None:
+    """启动阶段调用：发现残留标记就恢复北京时间，返回提示（无需恢复时返回 None）。"""
+    if not time_was_modified():
+        return None
+    ok, msg = restore_beijing_time()
+    return msg
 
 
 def is_admin() -> bool:
@@ -54,6 +89,7 @@ def set_system_time(target: datetime) -> tuple[bool, str]:
         if is_admin():
             r = _run_ps(command)
             if r.returncode == 0:
+                _mark_modified()
                 return True, f"系统时间已设为 {dt_str}"
             msg = (r.stderr or r.stdout or "").strip() or "设置失败（未知错误）"
             return False, msg
@@ -65,7 +101,9 @@ def set_system_time(target: datetime) -> tuple[bool, str]:
             now_str = datetime.now().strftime("%Y/%m/%d %H:%M")
             tgt_str = target.strftime("%Y/%m/%d %H:%M")
             if now_str == tgt_str:
+                _mark_modified()
                 return True, f"系统时间已设为 {dt_str}"
+            _mark_modified()
             return True, f"已请求提权修改为 {dt_str}，请确认 UAC 弹窗"
         msg = (r.stderr or r.stdout or "").strip() or "提权执行失败"
         return False, msg
@@ -110,9 +148,13 @@ def restore_beijing_time() -> tuple[bool, str]:
     net = get_network_time()
     if net is not None:
         ok, msg = set_system_time(net)
+        if ok:
+            _clear_marker()
         return ok, msg if ok else f"网络时间获取成功但设置失败：{msg}"
 
     # 网络不可用时，用本机当前时间（此时本机时区通常已是东八区）
     local = datetime.now()
     ok, msg = set_system_time(local)
+    if ok:
+        _clear_marker()
     return ok, msg if ok else f"网络时间不可用且本机设置失败：{msg}"

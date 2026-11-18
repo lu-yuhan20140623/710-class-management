@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Callable, Optional
 
-import schedule
+import schedule_core as schedule
 
 
 class BackendService:

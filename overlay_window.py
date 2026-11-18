@@ -9,7 +9,7 @@ import sys
 import tkinter as tk
 from datetime import datetime
 
-import schedule as sch
+import schedule_core as sch
 from ui import enable_high_dpi, dpi_scale, work_area
 
 BG = "#1a1a2e"

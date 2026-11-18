@@ -10,6 +10,7 @@
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime, time as dtime, timedelta
 from pathlib import Path
@@ -34,19 +35,41 @@ TIME_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 # ===================== 通用读写 =====================
+_DATA_LOCK = threading.RLock()
+
+
 def _load_json(path: Path, default):
-    if path.exists():
+    with _DATA_LOCK:
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError):
+                pass
+        return default
+
+
+def atomic_write_json(path: Path, data):
+    """加锁 + 临时文件替换，避免手机端读数据时读到半截 JSON。"""
+    with _DATA_LOCK:
+        tmp = path.with_name(path.name + ".tmp")
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            pass
-    return default
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+            raise
 
 
 def _save_json(path: Path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, data)
 
 
 def load_students() -> dict:
