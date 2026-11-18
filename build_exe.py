@@ -54,6 +54,7 @@ APP_FILES = [
     "version.py",
     "version_manager.py",
     "updater.py",
+    "update_checker.py",
 ]
 
 # 随包发布的默认名单（班级 / 学生 / 分组），安装后无需重新录入

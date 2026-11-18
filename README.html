@@ -268,7 +268,7 @@
       看课表、听上课提醒、给小组记积分、记录卫生扣分，还能用手机实时查看并确认密钥重置，全都在这一页里说清楚。
     </p>
     <div class="meta">
-      <span class="chip">适用版本 <b>2.0.0</b></span>
+      <span class="chip">适用版本 <b>2.1.0</b></span>
       <span class="chip">适用班级 <b>七年级10班</b></span>
       <span class="chip">系统 <b>Windows 10 / 11</b></span>
       <span class="chip">教师初始密钥 <b>710</b></span>
@@ -293,6 +293,7 @@
       <a href="#backup">11 · 数据与备份</a>
       <a href="#faq">12 · 常见问题</a>
       <a href="#about">13 · 版本信息</a>
+      <a href="#update">14 · 自动更新</a>
       <a href="#lan">附录 · 用手机查看</a>
     </nav>
 
@@ -824,13 +825,20 @@
       <section id="about">
         <h2><span class="no">13</span>版本信息</h2>
         <dl class="kv">
-          <dt>当前版本</dt><dd>2.0.0</dd>
+          <dt>当前版本</dt><dd>2.1.0</dd>
           <dt>适用班级</dt><dd>七年级10班 · 2026–2027 第一学期</dd>
           <dt>手机端</dt><dd>最低 Android 7.0，已适配 Android 15 / 16，与电脑在同一局域网</dd>
           <dt>开发者</dt><dd>陆瑜瀚、杨皓文、刘骁、Trae-Solo-Agent、DeepSeek-V4.1-Flash</dd>
           <dt>项目地址</dt><dd><a href="https://gitee.com/lu-yuhan20140623/710" target="_blank" rel="noreferrer">gitee.com/lu-yuhan20140623/710</a></dd>
           <dt>开源许可</dt><dd>MIT License</dd>
         </dl>
+        <h3>2.1.0 主要变化</h3>
+        <ul>
+          <li>新增自动更新：开机自启的后台服务检查 Gitee 新版本并提前下载，应用后自动重启。</li>
+          <li>小改动下发增量补丁（renew），跨版本或改动较大时下发完整安装包（setup）。</li>
+          <li>更新只替换程序代码，不动名单、积分、卫生、密钥等数据文件。</li>
+          <li>更新失败会弹窗，可选择重试下载或打开发布页手动安装。</li>
+        </ul>
         <h3>2.0.0 主要变化</h3>
         <ul>
           <li>新增教师端 / 学生端 / 值日生端 / 只读查看四种身份入口，教师端进入后不再反复要密钥。</li>
@@ -843,6 +851,57 @@
           想确认自己装的是不是最新版，可以点「更多功能 → 版本信息」，窗口里会显示版本号和文件校验结果。
           如果显示「代码校验：通过」，说明程序文件完整、没有被误改。
         </p>
+      </section>
+
+      <!-- 14 -->
+      <section id="update">
+        <h2><span class="no">14</span>自动更新</h2>
+        <p>程序会自己检查新版本，不用手动换文件。开机自启的后台服务每 6 小时访问一次 Gitee 仓库，发现新版本就在后台下载好；
+        主程序启动或运行中检测到下载完成，会安静地替换并自动重启，通常只会看到窗口闪一下。</p>
+
+        <div class="callout tip">
+          <span class="label">数据不会丢</span>更新只替换程序代码（<code>app/*.py</code>）或整体覆盖安装，
+          不会动名单、积分、卫生记录、<code>roles.json</code>、<code>password.json</code> 这些数据文件。
+        </div>
+
+        <div class="callout warn">
+          <span class="label">首次需要手动装一次</span>2.0.0 及更早版本没有更新模块，需要手动安装 2.1.0；
+          从 2.1.0 开始才会自动检查并升级到后续版本。
+        </div>
+
+        <h3>补丁还是完整安装包？</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>你的情况</th><th>下发内容</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td>当前版本正好是上一版，且这次只是小改动</td><td>renew 增量补丁</td><td>只包含改动的几个文件，几十 KB 到几百 KB，几秒完成</td></tr>
+              <tr><td>跨了多个版本、没提供补丁，或 exe 也有更新</td><td>setup 完整安装包</td><td>静默安装并自动重启，稍慢但最稳妥</td></tr>
+              <tr><td>本次改动很大（例如 UI 重构）</td><td>只提供 setup</td><td>维护者会跳过 renew，避免补丁不可靠</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>更新失败怎么办</h3>
+        <ol class="steps">
+          <li><b>会弹出「自动更新失败」窗口</b><span>点「重试」会重新下载；点「取消」会用浏览器打开发布页。</span></li>
+          <li><b>手动下载安装包</b><span>下载最新的 <code>ClassSchedule_Setup_x.y.z.exe</code>，直接安装覆盖，数据不受影响。</span></li>
+          <li><b>更新后版本没变</b><span>可能是清单里 sha256 还没填好，或当前版本与补丁不匹配；重新安装最新完整包即可。</span></li>
+        </ol>
+
+        <h3>发布新版本（维护者）</h3>
+        <ol class="steps">
+          <li><b>升版本号</b><span>改 <code>version.py</code> 后运行 <code>python build_exe.py</code>，生成新的 <code>dist/</code> 与 <code>version.json</code>。</span></li>
+          <li><b>生成补丁（小改动才做）</b><span><code>python make_renew.py --old 上一版目录/version.json</code>，
+            输出 <code>dist/renew_旧版本_to_新版本.zip</code> 并打印 sha256；改动超过约 60% 时会提示不建议发布补丁。</span></li>
+          <li><b>上传发行版附件</b><span>用 Inno Setup 编译 <code>setup.iss</code>，把安装包（和可选的 renew zip）传到 Gitee Release。</span></li>
+          <li><b>更新清单</b><span>编辑 <code>update/latest.json</code>：填版本、下载地址、sha256；不发布补丁时 <code>"renew": null</code>。
+            不填 sha256 客户端不会下载，可先留着占位。</span></li>
+          <li><b>推送生效</b><span>提交并推送 <code>update/latest.json</code> 后，已安装用户会在 6 小时内收到更新。</span></li>
+        </ol>
+        <div class="callout warn">
+          <span class="label">测试建议</span>先在测试机装上一版，把 <code>update/latest.json</code> 指到测试地址（settings.json 的 <code>update_manifest</code> 可覆盖），
+          走一遍「检查 → 下载 → 应用 → 重启」，确认版本与数据都正常后再正式发布。
+        </div>
       </section>
 
       <!-- 附录 -->

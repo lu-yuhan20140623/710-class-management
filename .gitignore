@@ -160,6 +160,8 @@ disabled_ranges.json
 .pwd_request.json
 .pwd_response.json
 time_modified.marker
+updates/
+update_state.json
 .open_score.request
 .show_ball.request
 plugins_data/

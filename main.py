@@ -8,8 +8,11 @@
 """
 
 import os
+import subprocess
 import sys
 import threading
+import webbrowser
+from pathlib import Path
 
 # PyInstaller 打包后 Windows 默认 stdout 是 gbk，emoji print 会炸
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -29,6 +32,7 @@ from tkinter import messagebox
 import autostart
 import instance_guard
 import time_debug
+import update_checker
 from backend import BackendService
 from ui import ScheduleUI, _apply_ttk_theme, enable_high_dpi
 
@@ -66,6 +70,103 @@ def _handle_cli() -> bool:
     return False
 
 
+# ---------- 自动更新 ----------
+def _relaunch_main(delay: int = 3):
+    """退出后重新启动主程序（先等本进程释放单实例互斥体）。"""
+    exe = Path(sys.executable)
+    cmd = f'cmd /c ping -n {delay} 127.0.0.1 >nul & start "" "{exe}"'
+    try:
+        subprocess.Popen(cmd, shell=True, cwd=str(exe.parent),
+                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+    except Exception as e:
+        print(f"[课程表] 重启失败：{e}")
+
+
+def _restart_after_update(pending: dict):
+    """setup 由安装程序装完后自行拉起；renew 直接替换代码，需要这里重启主界面。"""
+    if (pending or {}).get("kind") != "setup":
+        _relaunch_main()
+
+
+def _apply_pending_update(pending: dict) -> tuple:
+    """应用后台下载好的 renew 补丁或 setup 安装包。
+
+    返回 (ok, 提示信息)；ok 时调用方应立即退出，更新流程会自动重启程序。
+    """
+    if not getattr(sys, "frozen", False):
+        return False, "开发模式下不应用更新"
+    path = Path(str(pending.get("path", "")))
+    version = pending.get("version", "")
+    if not path.exists():
+        update_checker.clear_pending()
+        return False, "更新文件不存在，请重新下载"
+
+    if pending.get("kind") == "setup":
+        # 交给安装程序静默覆盖；等本进程退出后再安装，完成后拉起后台服务和主界面
+        exe = Path(sys.executable)
+        backend_exe = exe.parent / "ClassSchedule_Backend.exe"
+        cmd = (f'cmd /c ping -n 4 127.0.0.1 >nul & '
+               f'start /wait "" "{path}" /SILENT /CLOSEAPPLICATIONS /NORESTART & '
+               f'start "" "{backend_exe}" & start "" "{exe}"')
+        try:
+            subprocess.Popen(cmd, shell=True, cwd=str(exe.parent),
+                             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+        except Exception as e:
+            return False, f"启动安装程序失败：{e}"
+        update_checker.clear_pending()
+        return True, f"正在安装 {version}，完成后会自动重启"
+
+    # 增量补丁：先停后台服务，替换代码后再拉起
+    import updater
+    try:
+        autostart.stop_backend()
+    except Exception:
+        pass
+    ok, msg = updater.apply_patch(path)
+    if ok:
+        update_checker.clear_pending()
+        try:
+            autostart.start_backend()
+        except Exception:
+            pass
+    return ok, msg
+
+
+def _show_update_error(root, msg: str, release_url: str):
+    """更新失败：可重试下载，或打开发布页手动安装。"""
+    retry = messagebox.askretrycancel(
+        "自动更新失败",
+        f"{msg}\n\n点「重试」重新下载；点「取消」打开发布页手动下载安装包。",
+        parent=root)
+    if not retry:
+        webbrowser.open(release_url or update_checker.manual_download_hint())
+        return
+
+    def worker():
+        try:
+            manifest = update_checker.check(force=True)
+            ok, text = (False, "暂时没有可用的新版本") if not manifest else update_checker.prepare(manifest)
+        except Exception as exc:
+            ok, text = False, f"重新下载失败：{exc}"
+
+        def done():
+            if not ok:
+                messagebox.showerror("重试失败", text, parent=root)
+                return
+            pending = update_checker.load_pending()
+            ok2, msg2 = _apply_pending_update(pending) if pending else (False, "下载结果丢失")
+            if ok2:
+                print(f"[课程表] {msg2}")
+                root.destroy()
+                _restart_after_update(pending)
+            else:
+                _show_update_error(root, msg2, update_checker.manual_download_hint(pending))
+
+        root.after(0, done)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def main():
     if _handle_cli():
         return
@@ -97,6 +198,21 @@ def main():
     root = tk.Tk()
     enable_high_dpi(root)          # 按实际 DPI 调整字体缩放
     _apply_ttk_theme(root)
+
+    # 2.5 自动更新：后台已下载好的更新，在进入身份选择前静默应用
+    update_error = None
+    if getattr(sys, "frozen", False):
+        pending = update_checker.load_pending()
+        if pending:
+            ok, msg = _apply_pending_update(pending)
+            if ok:
+                print(f"[课程表] {msg}")
+                backend.stop()
+                root.destroy()
+                _restart_after_update(pending)
+                return
+            update_checker.clear_pending()
+            update_error = msg
 
     # 3. 身份选择（教师端 / 学生端 / 值日生端 / 查看信息）
     root.withdraw()
@@ -181,6 +297,30 @@ def main():
             print(f"[课程表] 卫生扣分日报展示失败：{e}")
 
     root.after(600, _show_hygiene_report)
+
+    # 7. 自动更新：后台下载完成后静默应用并重启；失败则提示重试或手动下载
+    if update_error:
+        root.after(2000, lambda: _show_update_error(
+            root, update_error, update_checker.manual_download_hint()))
+
+    def _update_tick():
+        if not getattr(sys, "frozen", False):
+            return
+        p = update_checker.load_pending()
+        if p:
+            ok, msg = _apply_pending_update(p)
+            if ok:
+                print(f"[课程表] {msg}")
+                backend.stop()
+                root.destroy()
+                _restart_after_update(p)
+                return
+            update_checker.clear_pending()
+            _show_update_error(root, msg, update_checker.manual_download_hint(p))
+            return
+        root.after(60_000, _update_tick)
+
+    root.after(60_000, _update_tick)
 
     print("[课程表] 已启动 · 七年级10班 · 2026-2027 第一学期")
     try:

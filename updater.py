@@ -50,6 +50,8 @@ def apply_patch(patch_path) -> tuple:
         patch = json.loads(patch_file.read_text(encoding="utf-8"))
         before = vm.status()
         incremental = before.get("current_hash") == patch.get("base_hash")
+        new_manifest_data = json.loads(new_manifest.read_text(encoding="utf-8"))
+        full_expected = vm.manifest_files(new_manifest_data)
 
         # 备份当前代码与清单，校验失败时回滚
         for f in target.glob("*.py"):
@@ -66,14 +68,20 @@ def apply_patch(patch_path) -> tuple:
                 for name in patch.get("removed", []):
                     (target / name).unlink(missing_ok=True)
             else:
-                keep = {f.name for f in payload.glob("*.py")}
-                for name in keep:
-                    _copy(payload / name, target / name)
-                for f in target.glob("*.py"):
-                    if f.name not in keep:
-                        f.unlink()
+                # 基准哈希对不上：补丁里只有变化的文件，未变化的沿用本地现有文件，
+                # 只删除新版本清单里已经不存在的残留代码
+                names = set(patch.get("changed", [])) | set(patch.get("added", []))
+                for name in names:
+                    if (payload / name).exists():
+                        _copy(payload / name, target / name)
+                for name in patch.get("removed", []):
+                    (target / name).unlink(missing_ok=True)
+                if full_expected:
+                    for f in target.glob("*.py"):
+                        if f.name not in full_expected:
+                            f.unlink()
 
-            expected = patch.get("files", {})
+            expected = patch.get("files", {}) if incremental else full_expected
             bad = [name for name, h in expected.items()
                    if not (target / name).exists()
                    or vm.sha256_file(target / name) != h]

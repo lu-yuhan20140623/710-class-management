@@ -11,6 +11,7 @@ import sys
 import time
 import signal
 import subprocess
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -19,6 +20,7 @@ import auth
 import instance_guard
 import score_records
 import lan_server
+import update_checker
 
 if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).parent.resolve()
@@ -167,6 +169,24 @@ def kill_ball():
     ball_proc = None
 
 
+# ---------- 自动更新（开机自启时检查） ----------
+def _update_worker():
+    """后台检查 Gitee 是否有新版本并提前下载；失败只记日志，不打扰用户。"""
+    while running:
+        try:
+            ok, msg = update_checker.auto_check_background()
+            if ok:
+                log(f"更新：{msg}")
+        except Exception as e:
+            log(f"更新检查异常: {e}")
+        # 每 6 小时检查一次（update_checker 内部还有节流）
+        time.sleep(6 * 3600)
+
+
+def start_update_worker():
+    threading.Thread(target=_update_worker, name="update-check", daemon=True).start()
+
+
 # ---------- 主循环 ----------
 running = True
 
@@ -193,6 +213,7 @@ def main():
 
     write_pid()
     log(f"backend 启动  PID={os.getpid()}")
+    start_update_worker()
 
     # 锁定密码文件：其他进程只能读，写/删/改名全部拒绝
     ok, lock_msg = auth.lock_password_file()

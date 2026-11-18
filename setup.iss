@@ -3,7 +3,7 @@
 ; 生成 Setup.exe 安装程序
 ; ============================================================
 #define MyAppName "课程表"
-#define MyAppVersion "1.6.0"
+#define MyAppVersion "2.1.0"
 #define MyAppPublisher "七年级10班"
 #define MyAppExeName "ClassSchedule.exe"
 #define MyBackendName "ClassSchedule_Backend.exe"
@@ -22,7 +22,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=installer
-OutputBaseFilename=ClassSchedule_Setup
+OutputBaseFilename=ClassSchedule_Setup_{#MyAppVersion}
 SetupIconFile=
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -30,6 +30,9 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
+; 自动更新时以 /SILENT 运行，需要安装程序自行关闭正在运行的程序
+CloseApplications=yes
+RestartApplications=no
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; 许可 / 自述（可选，没有就注释掉）

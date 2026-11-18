@@ -1,0 +1,13 @@
+{
+  "version": "2.1.0",
+  "published_at": "2026-11-18",
+  "previous_version": "2.0.0",
+  "exe_changed": false,
+  "notes": "新增自动更新：开机检查新版本，增量补丁或完整安装包自动下载，应用后自动重启。",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.1.0",
+  "renew": null,
+  "setup": {
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.1.0/ClassSchedule_Setup_2.1.0.exe",
+    "sha256": ""
+  }
+}
