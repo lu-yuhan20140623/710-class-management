@@ -12,7 +12,16 @@ import android.view.View
 // 七、BarChartView —— 纯 Canvas 横向条形图
 // ============================================================================
 
-class BarChartView(context: Context, private val data: List<Pair<String, Int>>) : View(context) {
+/**
+ * 横向条形图。
+ * [negative] = true 时按“扣分”语义绘制（红色、显示 -N）；
+ * = false 时用于积分，正分为绿色、负分为红色，并以 0 为基线双向展开。
+ */
+class BarChartView(
+    context: Context,
+    private val data: List<Pair<String, Int>>,
+    private val negative: Boolean = true
+) : View(context) {
     private val rowH = context.dp2px(48)
     private val topPad = context.dp2px(30)
     private val bottomPad = context.dp2px(16)
@@ -55,16 +64,33 @@ class BarChartView(context: Context, private val data: List<Pair<String, Int>>) 
         val nameCol = context.dp2px(110).toFloat()
         val rightPad = context.dp2px(56).toFloat()
         val plotL = nameCol; val plotR = w - rightPad; val plotW = plotR - plotL
-        val maxVal = data.maxOfOrNull { it.second } ?: 1
 
-        canvas.drawLine(plotL, topPad - 4f, plotL, h - bottomPad, axisPaint)
-        dimTextPaint.textAlign = Paint.Align.LEFT
-        canvas.drawText("0", plotL, h - bottomPad + dimTextPaint.textSize + 2f, dimTextPaint)
+        val values = data.map { it.second }
+        val minVal = if (negative) 0 else minOf(0, values.minOrNull() ?: 0)
+        val maxVal = if (negative) (values.maxOrNull() ?: 1).coerceAtLeast(1)
+                     else (values.maxOrNull() ?: 0).coerceAtLeast(1)
+        val span = (maxVal - minVal).coerceAtLeast(1)
+        val zeroX = plotL + (0 - minVal).toFloat() / span * plotW
+
+        // 0 轴与刻度
+        canvas.drawLine(zeroX, topPad - 4f, zeroX, h - bottomPad, axisPaint)
         canvas.drawLine(plotR, topPad - 4f, plotR, h - bottomPad, gridPaint)
+        val tickY = h - bottomPad + dimTextPaint.textSize + 2f
+        dimTextPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("0", zeroX, tickY, dimTextPaint)
+        if (minVal < 0) {
+            dimTextPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("$minVal", plotL, tickY, dimTextPaint)
+        }
         dimTextPaint.textAlign = Paint.Align.RIGHT
-        canvas.drawText("$maxVal", plotR, h - bottomPad + dimTextPaint.textSize + 2f, dimTextPaint)
+        canvas.drawText("$maxVal", plotR, tickY, dimTextPaint)
 
+        val colorPlus = Color.parseColor("#43A047")
+        val colorMinus = Color.parseColor("#C62828")
+        val barPlus = Color.parseColor("#66BB6A")
+        val barMinus = Color.parseColor("#EF5350")
         val barHeight = rowH * 0.48f
+
         data.forEachIndexed { i, (name, value) ->
             val cy = topPad + i * rowH + rowH / 2f
             textPaint.textAlign = Paint.Align.LEFT; textPaint.isFakeBoldText = true
@@ -76,15 +102,39 @@ class BarChartView(context: Context, private val data: List<Pair<String, Int>>) 
             canvas.drawText(displayName, context.dp2px(8).toFloat(), cy + textPaint.textSize / 2f, textPaint)
             textPaint.isFakeBoldText = false
 
-            val barRight = plotL + (value.toFloat() / maxVal) * plotW
-            if (value > 0) {
-                canvas.drawRoundRect(RectF(plotL, cy - barHeight / 2f, barRight, cy + barHeight / 2f), 6f, 6f, barPaint)
-                valuePaint.textAlign = Paint.Align.LEFT
-                canvas.drawText("-$value", barRight + context.dp2px(6).toFloat(), cy + valuePaint.textSize / 2f, valuePaint)
-            } else {
-                valuePaint.textAlign = Paint.Align.LEFT; valuePaint.color = Color.parseColor("#909090")
-                canvas.drawText("0", plotL + context.dp2px(6).toFloat(), cy + valuePaint.textSize / 2f, valuePaint)
-                valuePaint.color = Color.parseColor("#C62828")
+            val barEnd = plotL + (value - minVal).toFloat() / span * plotW
+            val left = minOf(zeroX, barEnd)
+            val right = maxOf(zeroX, barEnd)
+            if (value != 0) {
+                barPaint.color = if (negative || value < 0) barMinus else barPlus
+                canvas.drawRoundRect(RectF(left, cy - barHeight / 2f, right, cy + barHeight / 2f), 6f, 6f, barPaint)
+            }
+
+            when {
+                value == 0 -> {
+                    valuePaint.textAlign = Paint.Align.LEFT
+                    valuePaint.color = Color.parseColor("#909090")
+                    canvas.drawText("0", zeroX + context.dp2px(6).toFloat(),
+                        cy + valuePaint.textSize / 2f, valuePaint)
+                }
+                negative -> {
+                    valuePaint.textAlign = Paint.Align.LEFT
+                    valuePaint.color = colorMinus
+                    canvas.drawText("-$value", right + context.dp2px(6).toFloat(),
+                        cy + valuePaint.textSize / 2f, valuePaint)
+                }
+                value > 0 -> {
+                    valuePaint.textAlign = Paint.Align.LEFT
+                    valuePaint.color = colorPlus
+                    canvas.drawText("+$value", right + context.dp2px(6).toFloat(),
+                        cy + valuePaint.textSize / 2f, valuePaint)
+                }
+                else -> {
+                    valuePaint.textAlign = Paint.Align.RIGHT
+                    valuePaint.color = colorMinus
+                    canvas.drawText("$value", left - context.dp2px(6).toFloat(),
+                        cy + valuePaint.textSize / 2f, valuePaint)
+                }
             }
             if (i < data.size - 1) {
                 canvas.drawLine(plotL, cy + rowH / 2f + 2f, plotR, cy + rowH / 2f + 2f, gridPaint)

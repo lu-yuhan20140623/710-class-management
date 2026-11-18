@@ -99,19 +99,37 @@ def preset_reasons(cls: str) -> list:
     return result
 
 
-def add_record(cls: str, sids: list, reason: str, score: int, note: str = "") -> int:
+def _operator_label(operator) -> tuple:
+    """把操作人参数规范成 (显示名, 学号)。兼容字符串和 dict 两种写法。"""
+    if isinstance(operator, dict):
+        name = str(operator.get("name") or "").strip()
+        sid = str(operator.get("sid") or "").strip()
+        role = str(operator.get("role") or "").strip()
+    else:
+        name, sid, role = str(operator or "").strip(), "", ""
+    label = name
+    if role and role != name:
+        label = f"{role} {name}".strip()
+    return label or "未记录", sid
+
+
+def add_record(cls: str, sids: list, reason: str, score: int, note: str = "",
+               operator=None) -> int:
     """给选中的学生记卫生扣分，返回实际记录人数。"""
     data = load_data()
     block = class_block(data, cls)
     students = store.load_students().get(cls, {})
     gmap = store.student_group_map(store.load_groups().get(cls, {}), students)
     now = datetime.now()
+    stamp = now.strftime("%Y%m%d%H%M%S%f")
+    by, by_sid = _operator_label(operator)
     count = 0
     for sid in sids:
         info = students.get(sid)
         if not isinstance(info, dict):
             continue
         block["records"].append({
+            "id": f"{stamp}-{sid}",
             "sid": sid,
             "name": info.get("name", ""),
             "group": gmap.get(sid, "未分组"),
@@ -120,12 +138,33 @@ def add_record(cls: str, sids: list, reason: str, score: int, note: str = "") ->
             "note": note,
             "time": now.strftime("%Y-%m-%d %H:%M:%S"),
             "date": now.strftime("%Y-%m-%d"),
+            "by": by,
+            "by_sid": by_sid,
         })
         count += 1
     if reason and reason not in block["reasons"]:
         block["reasons"].append(reason)
     save_data(data)
     return count
+
+
+def revoke_record(cls: str, record: dict) -> bool:
+    """撤销一条卫生记录。新记录按 id 匹配，旧记录按内容匹配。"""
+    data = load_data()
+    block = class_block(data, cls)
+    records = block.get("records", [])
+    idx = None
+    rid = record.get("id")
+    if rid:
+        idx = next((i for i, r in enumerate(records) if r.get("id") == rid), None)
+    if idx is None:
+        idx = next((i for i, r in enumerate(records) if r == record), None)
+    if idx is None:
+        return False
+    records.pop(idx)
+    save_data(data)
+    return True
+
 
 
 def totals_by_group(cls: str) -> list:
@@ -424,8 +463,10 @@ def maybe_show_first_boot_report(parent) -> None:
 class HygieneWindow:
     """卫生管理：只看卫生扣分，单独统计，不影响学生积分。"""
 
-    def __init__(self, parent, default_class: str = DEFAULT_CLASS, readonly: bool = False):
+    def __init__(self, parent, default_class: str = DEFAULT_CLASS, readonly: bool = False,
+                 operator=None):
         self.readonly = readonly
+        self.operator = operator      # 记录人：{"name", "sid", "role"} 或 "教师"
         self.win = tk.Toplevel(parent)
         self.win.title("卫生管理（只读）· 课程表" if readonly else "卫生管理 · 课程表")
         fit_geometry(self.win, 820, 640, 680, 540)
@@ -484,6 +525,7 @@ class HygieneWindow:
         bar.pack(fill=tk.X, padx=16, pady=(4, 6))
         if not self.readonly:
             self._btn(bar, "🧹 记录扣分", self._open_record, primary=True).pack(side=tk.RIGHT)
+            self._btn(bar, "↩ 撤销记录", self._open_revoke).pack(side=tk.RIGHT, padx=8)
         self._btn(bar, "📋 扣分明细", self._show_details).pack(side=tk.RIGHT, padx=8)
         self._btn(bar, "📊 小组扣分图", self._group_chart).pack(side=tk.LEFT)
         self._btn(bar, "🥧 理由分布", self._reason_chart).pack(side=tk.LEFT, padx=8)
@@ -578,12 +620,87 @@ class HygieneWindow:
         for rec in reversed(records):
             who = f"{rec.get('sid', '')} {rec.get('name', '')}".strip() or "（小组记录）"
             lines.append(f"  {rec.get('time', '')} | {who} | "
-                         f"-{int(rec.get('score', 0))} 分 | {rec.get('reason', '')}")
+                         f"-{int(rec.get('score', 0))} 分 | {rec.get('reason', '')} | "
+                         f"记录人 {rec.get('by') or '未记录'}")
         txt.insert("1.0", "\n".join(lines))
         txt.config(state=tk.DISABLED)
 
         self._btn(win, "关闭", win.destroy).pack(pady=(0, 12))
         win.after_idle(lambda: center_window(win, self.win, 640, 520))
+
+    # ---------- 撤销记录 ----------
+    def _open_revoke(self):
+        if self.readonly:
+            return
+        block = class_block(load_data(), self.current_class)
+        records = list(reversed(block.get("records", [])))
+        if not records:
+            messagebox.showinfo("撤销记录", "当前班级暂无卫生扣分记录", parent=self.win)
+            return
+
+        win = tk.Toplevel(self.win)
+        win.title("撤销卫生记录")
+        win.configure(bg=BG_MAIN)
+        win.transient(self.win)
+        win.grab_set()
+        tk.Label(win, text="撤销卫生记录", font=(FONT, 14, "bold"),
+                 bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 2))
+        tk.Label(win, text="选择一条记录后点「撤销」，小组累计扣分立即还原；撤销不可恢复",
+                 font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM).pack()
+
+        body = tk.Frame(win, bg=BG_PANEL,
+                        highlightbackground=BG_CELL, highlightthickness=1)
+        body.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 4))
+        lst = tk.Listbox(body, height=13, font=("Consolas", 9),
+                         bg=BG_PANEL, fg=FG_TEXT, selectbackground="#2f5f8f",
+                         selectforeground="#ffffff", relief=tk.FLAT,
+                         activestyle="none", exportselection=False)
+        sb = ttk.Scrollbar(body, orient="vertical", command=lst.yview)
+        xb = ttk.Scrollbar(body, orient="horizontal", command=lst.xview)
+        lst.configure(yscrollcommand=sb.set, xscrollcommand=xb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        xb.pack(side=tk.BOTTOM, fill=tk.X)
+        lst.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        shown = records[:600]
+        for rec in shown:
+            who = f"{rec.get('sid', '')} {rec.get('name', '')}".strip() or "（小组记录）"
+            lst.insert(tk.END, f"{rec.get('time', '')} | {rec.get('group', '—')} | {who} | "
+                               f"-{int(rec.get('score', 0))} 分 | {rec.get('reason', '')} | "
+                               f"记录人 {rec.get('by') or '未记录'}")
+
+        err = tk.Label(win, text="", font=(FONT, 9), bg=BG_MAIN, fg=FG_DANGER)
+        err.pack()
+
+        def do_revoke():
+            sel = lst.curselection()
+            if not sel:
+                err.config(text="请先选中一条记录")
+                return
+            rec = shown[sel[0]]
+            who = f"{rec.get('sid', '')} {rec.get('name', '')}".strip() or "该记录"
+            score = int(rec.get("score", 0))
+            if not messagebox.askyesno(
+                    "确认撤销",
+                    f"确定撤销这条卫生记录？\n\n{rec.get('time', '')} · {who}\n"
+                    f"-{score} 分 · {rec.get('reason', '')}\n"
+                    f"记录人：{rec.get('by') or '未记录'}",
+                    parent=win):
+                return
+            if revoke_record(self.current_class, rec):
+                win.destroy()
+                self._refresh()
+                self._set_status(f"已撤销 {who} 的卫生扣分 -{score} 分", FG_OK)
+            else:
+                err.config(text="这条记录已不存在，可能已被撤销")
+
+        row = tk.Frame(win, bg=BG_MAIN)
+        row.pack(pady=(2, 12))
+        self._btn(row, "撤销选中记录", do_revoke, primary=True).pack(side=tk.LEFT, padx=6)
+        self._btn(row, "关闭", win.destroy).pack(side=tk.LEFT, padx=6)
+        lst.bind("<Double-Button-1>", lambda e: do_revoke())
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.after_idle(lambda: center_window(win, self.win, 760, 480))
 
     # ---------- 记录扣分 ----------
     def _open_record(self):
@@ -684,7 +801,8 @@ class HygieneWindow:
             if score <= 0:
                 err.config(text="扣分必须大于 0")
                 return
-            count = add_record(self.current_class, picked, reason, score)
+            count = add_record(self.current_class, picked, reason, score,
+                               operator=self.operator)
             win.destroy()
             self._refresh()
             self._set_status(f"{count} 名学生卫生扣 {score} 分 · {reason}", FG_DANGER)
@@ -707,7 +825,8 @@ class HygieneWindow:
         for rec in records[:600]:
             who = f"{rec.get('sid', '')} {rec.get('name', '')}".strip() or "（小组记录）"
             lines.append(f"{rec.get('time', '')} | {rec.get('group', '—')} | {who} | "
-                         f"-{int(rec.get('score', 0))} 分 | {rec.get('reason', '')}")
+                         f"-{int(rec.get('score', 0))} 分 | {rec.get('reason', '')} | "
+                         f"记录人 {rec.get('by') or '未记录'}")
         self._text_window(f"卫生扣分明细 · {self.current_class}", "\n".join(lines))
 
     def _text_window(self, title, content):

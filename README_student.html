@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>值日生使用手册 · 课程表</title>
+<style>
+  :root{
+    --bg:#1e1e2e; --panel:#2a2a3a; --cell:#3a3a4a; --cell-alt:#444458;
+    --text:#e8e8f0; --dim:#9090a0; --accent:#7ab8ff;
+    --ok:#66cc88; --warn:#ffcc66; --danger:#ff6b6b;
+    --line:#3a3a4a; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:"Microsoft YaHei UI","PingFang SC","Segoe UI",sans-serif;
+    line-height:1.75; font-size:15px;
+  }
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  .page{max-width:1180px; margin:0 auto; padding:28px 20px 64px}
+
+  /* ---------- 封面 ---------- */
+  .hero{
+    background:linear-gradient(135deg,#252538 0%,#2d3550 55%,#233a3a 100%);
+    border:1px solid var(--line); border-radius:20px; padding:38px 36px 32px;
+    position:relative; overflow:hidden;
+  }
+  .hero::after{
+    content:""; position:absolute; right:-80px; top:-80px; width:260px; height:260px;
+    border-radius:50%; background:radial-gradient(circle,rgba(122,184,255,.18),transparent 70%);
+  }
+  .hero .kicker{color:var(--accent); font-size:13px; letter-spacing:3px; margin:0 0 6px}
+  .hero h1{margin:0; font-size:38px; line-height:1.25; letter-spacing:1px}
+  .hero .sub{color:var(--dim); margin:12px 0 0; max-width:720px}
+  .badges{display:flex; flex-wrap:wrap; gap:10px; margin-top:22px}
+  .badge{
+    font-size:12px; color:var(--text); background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.12); border-radius:999px; padding:5px 13px;
+  }
+  .badge b{color:var(--accent); font-weight:600}
+
+  /* ---------- 布局 ---------- */
+  .layout{display:grid; grid-template-columns:236px 1fr; gap:26px; margin-top:26px}
+  nav.toc{
+    position:sticky; top:20px; align-self:start;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px 14px; font-size:13.5px;
+  }
+  nav.toc .t{color:var(--dim); font-size:12px; letter-spacing:2px; margin:0 0 8px 6px}
+  nav.toc a{display:block; color:var(--dim); padding:6px 8px; border-radius:8px}
+  nav.toc a:hover{background:var(--cell); color:var(--text); text-decoration:none}
+  nav.toc a.lv2{padding-left:22px; font-size:12.5px}
+  main{min-width:0}
+
+  section{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:24px 26px; margin-bottom:20px; scroll-margin-top:18px;
+  }
+  h2{margin:0 0 6px; font-size:23px; letter-spacing:.5px}
+  h2 .no{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; margin-right:10px; border-radius:10px;
+    background:rgba(122,184,255,.14); color:var(--accent); font-size:16px;
+    vertical-align:2px;
+  }
+  h3{margin:26px 0 8px; font-size:17px; color:var(--text)}
+  h3:first-of-type{margin-top:16px}
+  .lead{color:var(--dim); margin:0 0 8px}
+  p{margin:8px 0}
+  ul,ol{margin:8px 0; padding-left:22px}
+  li{margin:5px 0}
+  code{
+    background:var(--cell); border:1px solid var(--cell-alt); border-radius:6px;
+    padding:1px 6px; font-family:Consolas,"Cascadia Mono",monospace; font-size:13px;
+    color:#ffe0b3;
+  }
+  kbd{
+    background:var(--cell); border-bottom:2px solid var(--cell-alt); border-radius:5px;
+    padding:1px 7px; font-family:inherit; font-size:12.5px;
+  }
+
+  /* ---------- 卡片 ---------- */
+  .cards{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px}
+  .card{
+    background:var(--cell); border:1px solid var(--cell-alt);
+    border-radius:12px; padding:16px 18px;
+  }
+  .card .tag{
+    display:inline-block; font-size:11.5px; padding:2px 9px; border-radius:999px;
+    margin-bottom:8px; letter-spacing:1px;
+  }
+  .tag.score{background:rgba(102,204,136,.16); color:var(--ok)}
+  .tag.hygiene{background:rgba(255,204,102,.16); color:var(--warn)}
+  .card h4{margin:4px 0 6px; font-size:16px}
+  .card p{margin:0; color:var(--dim); font-size:13.5px}
+
+  /* ---------- 步骤 ---------- */
+  .steps{counter-reset:s; margin:14px 0 0; padding:0; list-style:none}
+  .steps>li{
+    counter-increment:s; position:relative; padding:0 0 0 46px; margin:0 0 16px;
+  }
+  .steps>li::before{
+    content:counter(s); position:absolute; left:0; top:0;
+    width:30px; height:30px; border-radius:50%;
+    background:rgba(122,184,255,.14); color:var(--accent);
+    display:flex; align-items:center; justify-content:center;
+    font-size:14px; font-weight:700; border:1px solid rgba(122,184,255,.28);
+  }
+  .steps>li b{display:block; margin-bottom:2px}
+  .steps>li span{color:var(--dim); font-size:13.5px}
+
+  /* ---------- 提示块 ---------- */
+  .note{
+    border-left:3px solid var(--accent); background:rgba(122,184,255,.07);
+    border-radius:0 10px 10px 0; padding:12px 16px; margin:14px 0; font-size:14px;
+  }
+  .note.warn{border-left-color:var(--warn); background:rgba(255,204,102,.07)}
+  .note.danger{border-left-color:var(--danger); background:rgba(255,107,107,.07)}
+  .note.ok{border-left-color:var(--ok); background:rgba(102,204,136,.07)}
+  .note b{color:inherit}
+  .note .h{display:block; font-weight:700; margin-bottom:3px}
+  .note.warn .h{color:var(--warn)}
+  .note.danger .h{color:var(--danger)}
+  .note.ok .h{color:var(--ok)}
+  .note .h{color:var(--accent)}
+
+  /* ---------- 表格 ---------- */
+  .table-wrap{overflow-x:auto; margin-top:12px}
+  table{width:100%; border-collapse:collapse; font-size:14px}
+  th,td{text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{color:var(--dim); font-weight:600; font-size:12.5px; letter-spacing:1px; background:rgba(255,255,255,.03)}
+  tr:last-child td{border-bottom:none}
+  td:first-child{white-space:nowrap; color:var(--accent)}
+
+  /* ---------- FAQ ---------- */
+  details{
+    border:1px solid var(--line); border-radius:10px; background:var(--cell);
+    padding:0 16px; margin:10px 0;
+  }
+  details[open]{background:var(--cell-alt)}
+  summary{cursor:pointer; padding:12px 0; font-weight:600; outline:none}
+  summary::marker{color:var(--accent)}
+  details .body{padding:0 0 12px; color:var(--dim); font-size:14px}
+  details .body p{margin:4px 0}
+
+  /* ---------- 页脚 ---------- */
+  footer{color:var(--dim); font-size:12.5px; text-align:center; padding:26px 10px 0; line-height:1.9}
+  footer .sep{opacity:.35; margin:0 8px}
+
+  @media (max-width:900px){
+    .layout{grid-template-columns:1fr}
+    nav.toc{position:static; display:grid; grid-template-columns:1fr 1fr; gap:2px}
+    nav.toc .t{grid-column:1/-1}
+    .cards{grid-template-columns:1fr}
+    .hero{padding:26px 22px}
+    .hero h1{font-size:29px}
+    section{padding:20px 18px}
+  }
+  @media print{
+    body{background:#fff; color:#111; font-size:12pt}
+    .hero{background:#f2f4f8; border-color:#ccd; color:#111}
+    nav.toc{display:none}
+    .layout{display:block}
+    section{background:#fff; border-color:#ccd; break-inside:avoid}
+    .card,details{background:#f7f8fa; border-color:#dde}
+    code{background:#eef; border-color:#ccd; color:#a33}
+    a{color:#14508c}
+    .note{background:#f4f7fb}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hero">
+    <p class="kicker">学生版 · 值日生专用</p>
+    <h1>值日生使用手册</h1>
+    <p class="sub">
+      这份说明只讲值日生每天会用到的操作：怎么登录、值日长怎么记积分、卫生长怎么记卫生扣分，
+      以及忘记密钥、误操作时该怎么办。看不懂的地方可以直接翻到最后的「常见问题」。
+    </p>
+    <div class="badges">
+      <span class="badge">适用版本 <b>2.1.0</b></span>
+      <span class="badge">适用系统 <b>Windows 10 / 11</b></span>
+      <span class="badge">值日长 <b>积分管理</b></span>
+      <span class="badge">卫生长 <b>卫生管理</b></span>
+      <span class="badge">数据 <b>提交即保存</b></span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc">
+      <p class="t">目录</p>
+      <a href="#s1">1. 你是哪种值日生</a>
+      <a href="#s2">2. 登录值日生端</a>
+      <a href="#s3">3. 忘记密钥怎么办</a>
+      <a href="#s4">4. 值日长：积分管理</a>
+      <a class="lv2" href="#s4-1">4.1 认识界面</a>
+      <a class="lv2" href="#s4-2">4.2 给个人打分</a>
+      <a class="lv2" href="#s4-3">4.3 按小组打分</a>
+      <a class="lv2" href="#s4-4">4.4 全选 / 随机点名</a>
+      <a class="lv2" href="#s4-5">4.5 更正与查询</a>
+      <a href="#s5">5. 卫生长：卫生管理</a>
+      <a class="lv2" href="#s5-1">5.1 认识界面</a>
+      <a class="lv2" href="#s5-2">5.2 记录卫生扣分</a>
+      <a class="lv2" href="#s5-3">5.3 查看与统计</a>
+      <a class="lv2" href="#s5-4">5.4 撤销记错的记录</a>
+      <a href="#s6">6. 手机端查看</a>
+      <a href="#s7">7. 值日生守则</a>
+      <a href="#s8">8. 常见问题</a>
+      <a href="#s9">9. 一分钟速查表</a>
+    </nav>
+
+    <main>
+
+      <!-- 1 -->
+      <section id="s1">
+        <h2><span class="no">1</span>你是哪种值日生</h2>
+        <p class="lead">值日生端按「职务」分流，两种职务进入的窗口不一样。</p>
+        <div class="cards">
+          <div class="card">
+            <span class="tag score">值日长</span>
+            <h4>进入「学生积分」</h4>
+            <p>给个人加分或扣分，查看小组积分、积分明细和统计图表。扣分、加分都会立即记到学生名下。</p>
+          </div>
+          <div class="card">
+            <span class="tag hygiene">卫生长</span>
+            <h4>进入「卫生管理」</h4>
+            <p>只记录卫生扣分，按小组汇总、按理由统计。卫生扣分单独计算，不会计入学生积分。</p>
+          </div>
+        </div>
+        <div class="note">
+          <span class="h">可以同时担任两个职务</span>
+          如果你既是值日长又是卫生长，登录时在「职务」下拉框里选择这次要做的事，
+          进入对应窗口即可；做完退出，再登录一次即可切换。
+        </div>
+      </section>
+
+      <!-- 2 -->
+      <section id="s2">
+        <h2><span class="no">2</span>登录值日生端</h2>
+        <p class="lead">全程鼠标点选，不需要输入账号。</p>
+        <ol class="steps">
+          <li><b>打开桌面上的「课程表」</b><span>等身份选择窗口出现。</span></li>
+          <li><b>点击「值日生端」卡片</b><span>图标是一把扫帚，说明文字为「按职务进入积分 / 卫生管理」。</span></li>
+          <li><b>选择自己的「学号 姓名」</b><span>下拉列表里按班级列出所有学生。选中后，姓名会显示在下方。</span></li>
+          <li><b>确认「职务」</b><span>系统会自动列出你被任命的职务，例如「值日长 · 积分管理」。</span></li>
+          <li><b>输入专用密钥</b><span>任命时老师给你的 6 位数字，输入时显示为圆点。</span></li>
+          <li><b>点击「进入」</b><span>验证通过后直接打开对应窗口。</span></li>
+        </ol>
+        <div class="note warn">
+          <span class="h">「进入」按钮是灰色的？</span>
+          说明这个学号还没有被任命为值日生。下拉框里会显示「暂无值日生任命」，
+          请联系老师先在「教师端 → 值日生任命」里添加你的职务。
+        </div>
+        <div class="note danger">
+          <span class="h">密钥只属于你</span>
+          专用密钥相当于你的操作密码，不要告诉同学，也不要写在黑板或课桌上。
+          老师那边也只保存加密结果，无法查看明文，只能帮你重置。
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section id="s3">
+        <h2><span class="no">3</span>忘记密钥怎么办</h2>
+        <p class="lead">不用找老师改文件，登录窗口里可以直接自助重置，但需要老师手机确认。</p>
+        <ol class="steps">
+          <li><b>在登录窗口点左下角「忘记密钥」</b><span>先选好你的学号和职务。</span></li>
+          <li><b>输入教师绑定的手机号</b><span>就是老师平时用来接收确认消息的号码。</span></li>
+          <li><b>设置新密钥</b><span>建议用 6 位数字，设置后请记住。</span></li>
+          <li><b>等老师在手机 App 上点「同意」</b><span>手机弹出确认框，老师确认后新密钥立即生效。</span></li>
+        </ol>
+        <div class="note">
+          <span class="h">如果提示「教师尚未绑定手机号」</span>
+          这时无法自助重置，请直接找老师，由老师在教师端重新设置你的值日生密钥。
+        </div>
+      </section>
+
+      <!-- 4 -->
+      <section id="s4">
+        <h2><span class="no">4</span>值日长：积分管理</h2>
+        <p class="lead">登录后看到的是「学生积分」窗口，所有加减分都在这里完成。</p>
+
+        <h3 id="s4-1">4.1 认识界面</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>位置</th><th>内容</th><th>用途</th></tr></thead>
+            <tbody>
+              <tr><td>顶部左侧</td><td>班级下拉框、人数</td><td>默认就是本班；一般不需要切换</td></tr>
+              <tr><td>顶部右侧</td><td>「按小组」/「按学生」</td><td>切换卡片的排列方式</td></tr>
+              <tr><td>中间</td><td>学生卡片 / 小组卡片</td><td>显示姓名、学号、当前积分；点击可选中</td></tr>
+              <tr><td>底部左侧</td><td>全选、反选</td><td>一次选中多名学生</td></tr>
+              <tr><td>底部右侧</td><td>随机点名、评价打分、更多功能</td><td>常用操作入口</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          <span class="h">积分怎么算</span>
+          积分记在每位学生个人名下；小组积分等于本组所有组员的积分之和，
+          所以给个人加减分后，小组数字会自动变化。
+        </div>
+
+        <h3 id="s4-2">4.2 给一名或几名学生打分</h3>
+        <ol class="steps">
+          <li><b>先选学生</b><span>「按学生」视图下，点击一张或多张学生卡片，选中的卡片会变蓝。</span></li>
+          <li><b>点击「评价打分」</b><span>弹出评价窗口，顶部会列出本次要打分的学生。</span></li>
+          <li><b>勾选本次涉及的学生</b><span>默认全部勾选；只想给其中几人记分时，点一下取消其他人的勾选。</span></li>
+          <li><b>选择「分类」</b><span>常用、课堂表现、日常纪律、卫生劳动、文明礼仪、学业任务。</span></li>
+          <li><b>选择或输入「理由」</b><span>可直接输入新理由，提交后会自动保存，下次能直接选。</span></li>
+          <li><b>填写「分值」</b><span>正数是加分，负数是扣分，例如 <code>3</code> 表示加 3 分，<code>-2</code> 表示扣 2 分；不能填 0。</span></li>
+          <li><b>点击「提交」</b><span>窗口关闭，卡片上的积分立即更新，底部状态栏会显示本次结果。</span></li>
+        </ol>
+        <div class="note warn">
+          <span class="h">分值超过 10 会二次确认</span>
+          这是防止多输一个 0。看到「分值 +30 超过 10，确定提交？」时，
+          先确认是不是自己填错了，再决定是否继续。
+        </div>
+
+        <h3 id="s4-3">4.3 按小组打分</h3>
+        <ul>
+          <li>切换到「按小组」，每张卡片就是一个小组成员集合。</li>
+          <li>点击小组卡片上的「为本组学生打分」，会直接带着全组学生进入评价窗口。</li>
+          <li>也可以先选中小组卡片，再点底部的「评价打分」。</li>
+          <li>小组卡片上显示的是本组积分合计，点开还能看组员明细。</li>
+        </ul>
+
+        <h3 id="s4-4">4.4 全选与随机点名</h3>
+        <ul>
+          <li><b>全选 / 反选</b>：适合全班统一加分，或先全选再取消少部分人。</li>
+          <li><b>随机点名</b>：点底部「随机点名」，卡片会滚动后定格一名学生。
+              这个功能只负责点名，不会自动加减分；需要记分时再走「评价打分」。</li>
+        </ul>
+
+        <h3 id="s4-5">4.5 记错了怎么更正</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>要做的事</th><th>入口</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td>撤回刚才的记录</td><td>更多功能 → 撤回积分记录</td><td>选中记录后撤回，积分会同步还原</td></tr>
+              <tr><td>查某个学生的历史</td><td>更多功能 → 查询积分明细</td><td>可按学生查看每一笔加分 / 扣分</td></tr>
+              <tr><td>看本周统计</td><td>更多功能 → 周度积分统计图</td><td>按小组展示本周积分变化</td></tr>
+              <tr><td>看理由分布</td><td>更多功能 → 理由分布饼图</td><td>了解加分、扣分主要集中在哪些理由</td></tr>
+              <tr><td>看小组对比</td><td>更多功能 → 小组加减分对比图</td><td>横向比较各组表现</td></tr>
+              <tr><td>提醒低分学生</td><td>更多功能 → 低积分预警</td><td>列出积分偏低的学生</td></tr>
+              <tr><td>核对操作历史</td><td>更多功能 → 查看操作日志</td><td>每次打分都有时间、学生、理由和余额</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note danger">
+          <span class="h">这几项先问老师再用</span>
+          「新增学生」「批量导入学生」「删除选中学生」「编辑学生资料」「小组管理」「手动修改积分」「本周数据归档」
+          属于名单和数据维护，不是日常记分操作。拿不准时不要点，避免误删或改动全班的积分。
+        </div>
+        <div class="note ok">
+          <span class="h">提交后不用另存</span>
+          每次提交都会立即写入数据文件，也会同步给同一局域网内的手机端；
+          直接关闭窗口不会丢失已经提交的记录。
+        </div>
+      </section>
+
+      <!-- 5 -->
+      <section id="s5">
+        <h2><span class="no">5</span>卫生长：卫生管理</h2>
+        <p class="lead">卫生窗口只处理卫生扣分，和学生积分完全分开。</p>
+
+        <h3 id="s5-1">5.1 认识界面</h3>
+        <ul>
+          <li>顶部：班级下拉框、本班累计扣分。</li>
+          <li>中间：小组列表，每行显示小组名、记录条数、累计扣分。</li>
+          <li>点击任意小组行，可以查看组员扣分明细和每一条扣分记录。</li>
+          <li>底部：记录扣分、扣分明细、小组扣分图、理由分布。</li>
+        </ul>
+
+        <h3 id="s5-2">5.2 记录卫生扣分</h3>
+        <ol class="steps">
+          <li><b>点击「记录扣分」</b><span>打开记录窗口。</span></li>
+          <li><b>选择小组</b><span>选好后，学生列表会自动列出该组组员，并默认全部选中。</span></li>
+          <li><b>选择学生</b><span>只扣其中几人时，按住 <kbd>Ctrl</kbd> 逐个点选，或按住 <kbd>Shift</kbd> 连选。</span></li>
+          <li><b>填写理由</b><span>可从预设理由中选择，也可以直接输入新理由；新理由会保存为下次的预设。</span></li>
+          <li><b>填写扣分</b><span>必须是大于 0 的整数，默认是 1。</span></li>
+          <li><b>点击「提交」</b><span>窗口关闭，小组累计扣分立即更新，底部会显示本次扣分结果。</span></li>
+        </ol>
+        <div class="note">
+          <span class="h">扣分记到个人，小组自动累计</span>
+          每条扣分都会记在具体学生名下；小组列表里的数字是本组组员扣分的合计。
+          因此点开小组能看到「谁因为什么扣了几分」。
+        </div>
+        <div class="note ok">
+          <span class="h">每条记录都有记录人和时间</span>
+          提交时会自动记下操作人（例如「卫生长 张三」或「教师」）和精确到秒的时间。
+          之后在「扣分明细」、小组详情和撤销窗口里都能看到，老师也能核对是谁在什么时候记的。
+        </div>
+        <div class="note warn">
+          <span class="h">卫生扣分不进积分</span>
+          卫生管理里的扣分不会改变学生积分，也不会出现在积分统计图里。
+          两边各算各的，避免重复扣分。
+        </div>
+
+        <h3 id="s5-3">5.3 查看与统计</h3>
+        <ul>
+          <li><b>扣分明细</b>：按时间倒序列出本班所有卫生记录，包含时间、小组、学生、分值、理由和记录人。</li>
+          <li><b>小组扣分图</b>：用柱状图比较各组累计扣分，扣分多的组排在前面。</li>
+          <li><b>理由分布</b>：用饼图看扣分主要集中在哪些理由，方便班会总结。</li>
+          <li><b>组员明细</b>：直接点小组行，查看该组每名成员的扣分和逐条记录。</li>
+        </ul>
+
+        <h3 id="s5-4">5.4 撤销记错的记录</h3>
+        <p>卫生记录也支持撤销，入口在卫生管理窗口底部的「撤销记录」。</p>
+        <ol class="steps">
+          <li><b>点击「撤销记录」</b><span>只读模式或没有记录时不会显示可用列表。</span></li>
+          <li><b>在列表里找到要撤销的那一条</b><span>每行按「时间 | 小组 | 学生 | 分值 | 理由 | 记录人」排列，最新的在最前面。</span></li>
+          <li><b>点「撤销选中记录」</b><span>也可以直接双击这一行。</span></li>
+          <li><b>确认撤销</b><span>弹窗会再次显示记录人、时间和分值，确认后该条记录被删除，小组累计扣分立即还原。</span></li>
+        </ol>
+        <div class="note danger">
+          <span class="h">撤销不可恢复</span>
+          撤销是把这条记录从数据里删除，不能撤销「撤销」操作。
+          删除前请核对时间、学生和分值，确认确实是记错的那一条。
+        </div>
+        <div class="note">
+          <span class="h">老师也能看到每一笔</span>
+          教师在教师端打开卫生管理时，同样可以查看扣分明细和记录人，
+          并使用同一个撤销工具处理误记。记录人信息不会因为撤销其他记录而改变。
+        </div>
+      </section>
+
+      <!-- 6 -->
+      <section id="s6">
+        <h2><span class="no">6</span>手机端查看</h2>
+        <p class="lead">手机端不是必须的，值日生用电脑端就能完成全部记录。</p>
+        <ul>
+          <li>手机和电脑连同一个 Wi-Fi / 局域网，打开 App 即可查看课表、积分和卫生。</li>
+          <li>手机上的数据来自电脑端，电脑端提交后稍等片刻即可看到最新结果。</li>
+          <li>重置值日生密钥时，老师需要在手机 App 弹出的确认框里点「同意」。</li>
+        </ul>
+        <div class="note">
+          <span class="h">手机看不到数据？</span>
+          先确认手机和电脑在同一个网络、电脑端后台服务正在运行；
+          仍然看不到时找老师检查局域网连接。
+        </div>
+      </section>
+
+      <!-- 7 -->
+      <section id="s7">
+        <h2><span class="no">7</span>值日生守则</h2>
+        <ol>
+          <li><b>密钥保密</b>：不借给同学，不公开写在教室可见的位置。</li>
+          <li><b>离开就退出</b>：记完分关闭窗口，避免别人用你的身份操作。</li>
+          <li><b>先核对再提交</b>：看清学号、姓名、分值和正负号，再点提交。</li>
+          <li><b>只做分内事</b>：名单、小组、手动改分、数据归档按老师安排操作。</li>
+          <li><b>有疑问先问</b>：拿不准该加几分、该不该扣，先问老师或班干部。</li>
+          <li><b>不删他人记录</b>：发现记录有问题，先报告老师，再按老师要求撤回。</li>
+        </ol>
+      </section>
+
+      <!-- 8 -->
+      <section id="s8">
+        <h2><span class="no">8</span>常见问题</h2>
+
+        <details>
+          <summary>「进入」按钮是灰色的，点不了</summary>
+          <div class="body">
+            <p>说明当前学号没有被任命为值日生，或者「职务」下拉框是空的。</p>
+            <p>解决：换回自己的学号，确认姓名下方出现职务；仍然为空就找老师在教师端任命。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>提示「专用密钥不正确」</summary>
+          <div class="body">
+            <p>先确认选的是自己的学号和职务，再检查数字有没有输错。</p>
+            <p>确实想不起来时，点「忘记密钥」按第 3 节自助重置；教师没绑手机号就找老师重置。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>卫生管理里提示「当前班级还没有小组」</summary>
+          <div class="body">
+            <p>卫生扣分需要先有小组和组员。请老师或值日长在「学生积分 → 更多功能 → 小组管理」里分好组。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>打分窗口里学生列表是空的</summary>
+          <div class="body">
+            <p>通常是所选小组还没有成员，或者当前班级还没有学生。</p>
+            <p>先在「按学生」视图确认班里有学生，再检查小组是否分配了组员。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>填了分值，提交却没有反应</summary>
+          <div class="body">
+            <p>检查三点：至少勾选一名学生、理由不能为空、分值必须是整数且不能为 0。</p>
+            <p>窗口里会用红字提示具体原因。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>不小心提交错了怎么办</summary>
+          <div class="body">
+            <p>值日长：在「更多功能 → 撤回积分记录」里找到这一笔并撤回。</p>
+            <p>卫生长：在卫生管理窗口点「撤销记录」，选中记错的那一条撤销即可；
+               弹窗会显示时间、学生、分值和记录人，确认后再删除。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>关掉窗口后数据会丢吗</summary>
+          <div class="body">
+            <p>不会。每次点「提交」就已经写入数据文件，关闭窗口不影响已提交的记录。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>可以同时打开积分和卫生两个窗口吗</summary>
+          <div class="body">
+            <p>值日生端一次只进入一个职务对应的窗口。需要切换时，关闭当前窗口，
+               重新选择「值日生端」并选另一个职务登录即可。</p>
+          </div>
+        </details>
+      </section>
+
+      <!-- 9 -->
+      <section id="s9">
+        <h2><span class="no">9</span>一分钟速查表</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>我要做的事</th><th>入口</th><th>关键点</th></tr></thead>
+            <tbody>
+              <tr><td>登录</td><td>身份选择 → 值日生端</td><td>选学号 → 选职务 → 输专用密钥</td></tr>
+              <tr><td>给个人加分 / 扣分</td><td>学生积分 → 评价打分</td><td>勾学生、选理由、正数加分负数扣分</td></tr>
+              <tr><td>给全组打分</td><td>按小组 → 为本组学生打分</td><td>自动带出全组，可取消个别人</td></tr>
+              <tr><td>全班统一加分</td><td>全选 → 评价打分</td><td>先全选，再取消不需要的学生</td></tr>
+              <tr><td>撤回记错的积分</td><td>更多功能 → 撤回积分记录</td><td>选中那一笔撤回，积分自动还原</td></tr>
+              <tr><td>记录卫生扣分</td><td>卫生管理 → 记录扣分</td><td>选小组、多选学生、理由、正整数</td></tr>
+              <tr><td>撤销记错的卫生扣分</td><td>卫生管理 → 撤销记录</td><td>选中记录确认撤销，累计扣分自动还原</td></tr>
+              <tr><td>看小组卫生排名</td><td>卫生管理 → 小组扣分图</td><td>扣分多的组排在前面</td></tr>
+              <tr><td>重置自己的密钥</td><td>登录窗口 → 忘记密钥</td><td>教师手机号 + 手机端同意</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer>
+        课程表 · 值日生使用手册
+        <span class="sep">|</span> 适用版本 2.1.0
+        <span class="sep">|</span> 与《课程表使用说明》配套使用
+        <br>
+        遇到本页没有写到的问题，先问老师，不要自行修改数据文件。
+      </footer>
+
+    </main>
+  </div>
+</div>
+</body>
+</html>

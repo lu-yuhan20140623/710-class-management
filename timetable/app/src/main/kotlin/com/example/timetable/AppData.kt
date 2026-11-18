@@ -37,6 +37,8 @@ object AppData {
 
     var groupScores: List<GroupScore> = emptyList()
 
+    var students: List<StudentRow> = emptyList()
+
     var hygieneRecords: List<HygieneRecord> = emptyList()
     var hygieneTotalRecords = 0
     var hygieneTotalDeduct = 0
@@ -99,6 +101,16 @@ object AppData {
         }
         schedule = cells
 
+        root.optJSONArray("students")?.let { arr ->
+            val list = ArrayList<StudentRow>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                list.add(StudentRow(o.optString("sid"), o.optString("name"),
+                    o.optString("group"), o.optInt("total")))
+            }
+            students = list
+        }
+
         root.optJSONArray("groups")?.let { arr ->
             val list = ArrayList<GroupScore>()
             for (i in 0 until arr.length()) {
@@ -108,7 +120,8 @@ object AppData {
                     for (j in 0 until rs.length()) {
                         val r = rs.optJSONObject(j) ?: continue
                         recs.add(ScoreRecord(r.optString("time"),
-                            r.optString("reason"), r.optInt("delta")))
+                            r.optString("reason"), r.optInt("delta"),
+                            r.optString("member")))
                     }
                 }
                 list.add(GroupScore(o.optString("name"), o.optString("leader"),
@@ -127,7 +140,8 @@ object AppData {
                 for (i in 0 until arr.length()) {
                     val o = arr.optJSONObject(i) ?: continue
                     recs.add(HygieneRecord(o.optString("group"), o.optString("member"),
-                        o.optString("reason"), o.optInt("score"), o.optString("time")))
+                        o.optString("reason"), o.optInt("score"), o.optString("time"),
+                        o.optString("date"), o.optString("by")))
                 }
             }
             hygieneRecords = recs
@@ -157,5 +171,14 @@ object AppData {
         val map = linkedMapOf<String, Int>()
         hygieneRecords.forEach { r -> map[r.reason] = (map[r.reason] ?: 0) + 1 }
         return map.entries.sortedByDescending { it.value }.map { it.key to it.value }
+    }
+
+    /** 积分理由分布（次数），最多 8 项，避免饼图过长。 */
+    fun scoreCountsByReason(): List<Pair<String, Int>> {
+        val map = linkedMapOf<String, Int>()
+        groupScores.forEach { g ->
+            g.records.forEach { r -> map[r.reason] = (map[r.reason] ?: 0) + 1 }
+        }
+        return map.entries.sortedByDescending { it.value }.take(8).map { it.key to it.value }
     }
 }

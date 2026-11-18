@@ -5,7 +5,7 @@ Tkinter 主界面（ScheduleUI）
 - 右侧：实时状态面板 + 倒计时 + 设置按钮
 - 底部：开机自启状态
 
-2.1.1 起主题/DPI 工具拆到 ui_theme.py，各对话框拆到 ui_dialogs.py；
+2.1.0 起主题/DPI 工具拆到 ui_theme.py，各对话框拆到 ui_dialogs.py；
 本模块继续导出同名符号，外部 `from ui import ...` 无需修改。
 """
 
@@ -596,7 +596,8 @@ class ScheduleUI:
             win.focus_force()
             return
         from hygiene import HygieneWindow
-        self.root._hygiene_window = HygieneWindow(self.root).win
+        self.root._hygiene_window = HygieneWindow(
+            self.root, operator={"name": "教师", "role": "教师"}).win
 
     def _show_student_score(self, readonly=False):
         # 悬浮球与主界面共用同一个窗口实例，存到 root 上避免开出两个窗口

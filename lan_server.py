@@ -345,6 +345,32 @@ def _group_names(cls: str) -> list:
     return list(block) if isinstance(block, dict) else []
 
 
+def _student_rows(cls: str) -> list:
+    """学生名单（学号 / 姓名 / 小组 / 当前积分），供手机端导出。"""
+    students = store.load_students()
+    groups = store.load_groups()
+    stu = students.get(cls, {}) if isinstance(students, dict) else {}
+    group_map = groups.get(cls, {}) if isinstance(groups, dict) else {}
+    if not isinstance(stu, dict):
+        stu = {}
+    if not isinstance(group_map, dict):
+        group_map = {}
+    group_of = store.student_group_map(group_map, stu)
+
+    rows = []
+    for sid, info in stu.items():
+        if not isinstance(info, dict):
+            info = {}
+        rows.append({
+            "sid": str(sid),
+            "name": str(info.get("name", "") or ""),
+            "group": str(group_of.get(sid, "") or ""),
+            "total": store.student_total(info),
+        })
+    rows.sort(key=lambda row: (row["group"], row["sid"]))
+    return rows
+
+
 def _hygiene_view(cls: str) -> dict:
     data = store.load_hygiene()
     block = data.get(cls, {}) if isinstance(data, dict) else {}
@@ -373,6 +399,9 @@ def _hygiene_view(cls: str) -> dict:
             "reason": reason,
             "score": score,
             "time": _short_time(rec.get("time", "")),
+            "date": rec.get("date", ""),
+            "by": rec.get("by", "") or "未记录",
+            "by_sid": rec.get("by_sid", ""),
         })
 
     records.sort(key=lambda item: item["time"], reverse=True)
@@ -399,6 +428,7 @@ def snapshot() -> dict:
         "state": _state_view(current),
         "reset_hint": store.next_reset_text(now),
         **_schedule_view(),
+        "students": _student_rows(cls),
         "groups": _group_scores(cls),
         "hygiene": _hygiene_view(cls),
     }

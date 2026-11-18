@@ -40,6 +40,40 @@ internal fun buildScorePage(ctx: Context): View {
     })
     container.addView(summaryCard)
 
+    if (AppData.groupScores.isNotEmpty()) {
+        val barCard = makeCard(ctx).apply {
+            setPadding(ctx.dp2px(12), ctx.dp2px(14), ctx.dp2px(12), ctx.dp2px(14))
+        }
+        barCard.addView(TextView(ctx).apply {
+            text = "📊 小组积分排行"; setTextColor(Color.parseColor("#1A1A2E"))
+            typeface = Typeface.DEFAULT_BOLD; textSizeSp(15)
+            setPadding(ctx.dp2px(6), 0, ctx.dp2px(6), ctx.dp2px(10))
+        })
+        barCard.addView(
+            BarChartView(ctx, AppData.groupScores.map { it.name to it.total }, negative = false).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            })
+        container.addView(barCard)
+    }
+
+    val reasons = AppData.scoreCountsByReason()
+    if (reasons.isNotEmpty()) {
+        val pieCard = makeCard(ctx).apply {
+            setPadding(ctx.dp2px(12), ctx.dp2px(14), ctx.dp2px(12), ctx.dp2px(14))
+        }
+        pieCard.addView(TextView(ctx).apply {
+            text = "🥧 积分理由分布"; setTextColor(Color.parseColor("#1A1A2E"))
+            typeface = Typeface.DEFAULT_BOLD; textSizeSp(15)
+            setPadding(ctx.dp2px(6), 0, ctx.dp2px(6), ctx.dp2px(10))
+        })
+        pieCard.addView(PieChartView(ctx, reasons).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        })
+        container.addView(pieCard)
+    }
+
     AppData.groupScores.sortedByDescending { it.total }.forEachIndexed { idx, g ->
         container.addView(buildGroupCard(ctx, idx, g))
     }

@@ -21,6 +21,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.app.Activity          // 新增
 import android.app.AlertDialog       // 新增：填写电脑端地址
+import android.content.Intent        // 新增：导出时选择保存目录
 import android.util.Log              // 新增
 import android.widget.EditText       // 新增
 import android.widget.Toast          // 新增
@@ -66,6 +67,7 @@ class MainActivity : Activity() {
 
     companion object {
         private const val KEY_URL = "server_url"
+        internal const val REQ_EXPORT_DIR = 1001
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -298,6 +300,11 @@ class MainActivity : Activity() {
             setOnClickListener { showServerDialog() }
         }
         topBar.addView(statusLabel)
+        topBar.addView(TextView(ctx).apply {
+            text = "⇩ 导出"; setTextColor(Color.WHITE); textSizeSp(13)
+            setPadding(ctx.dp2px(10), 0, 0, 0)
+            setOnClickListener { startExportFlow(this@MainActivity) }
+        })
         root.addView(topBar)
 
         val tabBar = LinearLayout(ctx).apply {
@@ -351,6 +358,23 @@ class MainActivity : Activity() {
             val selected = i == index
             btn.setTextColor(if (selected) Color.parseColor("#FFD54F") else Color.parseColor("#C0DBEE"))
             btn.typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+        }
+    }
+
+    // 导出：系统文件选择器返回目标目录
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_EXPORT_DIR && resultCode == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: Throwable) {
+            }
+            runExport(this, uri)
         }
     }
 }

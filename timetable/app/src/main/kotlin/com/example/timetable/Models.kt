@@ -13,7 +13,7 @@ data class CourseCell(
 )
 
 data class ScoreRecord(
-    val time: String, val reason: String, val delta: Int
+    val time: String, val reason: String, val delta: Int, val member: String = ""
 )
 
 data class GroupScore(
@@ -21,5 +21,10 @@ data class GroupScore(
 )
 
 data class HygieneRecord(
-    val group: String, val member: String, val reason: String, val score: Int, val time: String
+    val group: String, val member: String, val reason: String, val score: Int,
+    val time: String, val date: String = "", val by: String = ""
+)
+
+data class StudentRow(
+    val sid: String, val name: String, val group: String, val total: Int
 )

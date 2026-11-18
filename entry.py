@@ -653,7 +653,11 @@ def open_target(root, mode, payload):
         cls = payload.get("cls") or None
         if duty.get("kind") == roles.KIND_HYGIENE:
             from hygiene import HygieneWindow
-            win = HygieneWindow(root, default_class=cls).win
+            win = HygieneWindow(
+                root, default_class=cls,
+                operator={"name": duty.get("name", ""), "sid": duty.get("sid", ""),
+                          "role": duty.get("role", "卫生长")},
+            ).win
         else:
             from student_score import StudentScoreWindow
             win = StudentScoreWindow(root, default_class=cls).win

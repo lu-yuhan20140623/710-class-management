@@ -26,8 +26,23 @@ PW_RESPONSE = APP_DIR / ".pwd_response.json"
 DEFAULT_PASSWORD = "710"
 PW_CHANGE_TIMEOUT = 6.0
 
+
+def _backup_dir() -> Path:
+    """备份放在用户目录，避免与安装目录里的 password.json 一起被误删。"""
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+    if base:
+        return Path(base) / "ClassSchedule"
+    return Path.home() / ".class_schedule"
+
+
+# 密码文件的可恢复副本 + “曾经初始化过”的标记（都不含明文，只有 salt/hash）
+BACKUP_FILE = _backup_dir() / "password.bak.json"
+INIT_MARK = _backup_dir() / "initialized.marker"
+
 # 后台进程持有的锁定句柄（仅 backend_service.py 内有值）
 _lock_fd = None
+# 上次写入备份的内容，避免每次校验密码都重复落盘
+_backup_text = None
 
 
 class PasswordFileError(Exception):
@@ -55,27 +70,71 @@ def _safe_unlink(path: Path):
 
 
 def _create_default() -> dict:
-    """首次运行：创建默认密码。仅在文件不存在时调用。"""
+    """首次运行：创建默认密码。仅在文件不存在、且从未初始化过时调用。"""
     salt = secrets.token_hex(16)
     data = {"salt": salt, "hash": _hash(DEFAULT_PASSWORD, salt)}
     _atomic_write_json(PW_FILE, data)
+    _write_backup(json.dumps(data, ensure_ascii=False))
     return data
+
+
+# ---------------- 备份 / 恢复 ----------------
+def _write_backup(text: str):
+    """把当前密码配置写一份到用户目录，供 password.json 被误删后恢复。"""
+    global _backup_text
+    if text == _backup_text:
+        return
+    try:
+        BACKUP_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = BACKUP_FILE.with_name(f"{BACKUP_FILE.name}.tmp{os.getpid()}")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, BACKUP_FILE)
+        if not INIT_MARK.exists():
+            INIT_MARK.write_text("1", encoding="utf-8")
+        _backup_text = text
+    except OSError:
+        pass
+
+
+def _restore_from_backup():
+    """password.json 缺失时尝试从备份恢复；失败返回 None。"""
+    if not BACKUP_FILE.exists():
+        return None
+    try:
+        text = BACKUP_FILE.read_text(encoding="utf-8")
+        data = json.loads(text)
+        if not isinstance(data, dict) or "salt" not in data or "hash" not in data:
+            return None
+        _atomic_write_json(PW_FILE, data)
+        return data
+    except (OSError, ValueError):
+        return None
 
 
 def _load() -> dict:
     """读取密码配置；损坏/被篡改时抛异常，绝不静默回退默认密码。"""
-    if not PW_FILE.exists():
-        return _create_default()
-    try:
-        with open(PW_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict) or "salt" not in data or "hash" not in data:
-            raise ValueError("缺少 salt/hash 字段")
+    if PW_FILE.exists():
+        try:
+            with open(PW_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict) or "salt" not in data or "hash" not in data:
+                raise ValueError("缺少 salt/hash 字段")
+        except Exception as e:
+            raise PasswordFileError(f"password.json 已损坏或被篡改：{e}") from e
+        # 每次成功读取都刷新备份，保证备份始终对应当前密码
+        _write_backup(json.dumps(data, ensure_ascii=False))
         return data
-    except PasswordFileError:
-        raise
-    except Exception as e:
-        raise PasswordFileError(f"password.json 已损坏或被篡改：{e}") from e
+
+    # 密码文件被删除：优先用备份恢复，绝不静默回退到默认密码 "710"
+    restored = _restore_from_backup()
+    if restored is not None:
+        return restored
+    if INIT_MARK.exists():
+        raise PasswordFileError(
+            "password.json 已被删除，备份也不可用。为防止他人绕过密钥，"
+            "不会自动恢复默认密码；请用教师绑定手机号重置密钥。"
+        )
+    return _create_default()
 
 
 # ---------------- 校验 ----------------
@@ -162,6 +221,7 @@ def reset_password_by_phone(phone: str, new_password: str) -> tuple[bool, str]:
         return (True, "密钥已重置") if ok else (False, msg)
     try:
         _atomic_write_json(PW_FILE, payload)
+        _write_backup(json.dumps(payload, ensure_ascii=False))
         return True, "密钥已重置"
     except OSError as e:
         return False, f"写入失败：{e}"
@@ -225,7 +285,9 @@ def lock_password_file() -> tuple[bool, str]:
         return True, "password.json 已处于锁定状态"
     if not PW_FILE.exists():
         try:
-            _create_default()
+            _load()
+        except PasswordFileError as e:
+            return False, str(e)
         except OSError as e:
             return False, f"创建 password.json 失败：{e}"
     try:
@@ -303,14 +365,16 @@ def _write_locked_text(text: str):
         tmp = PW_FILE.with_name(PW_FILE.name + f".tmp{os.getpid()}")
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, PW_FILE)
-        return
-    os.lseek(_lock_fd, 0, os.SEEK_SET)
-    view = memoryview(data)
-    while view:
-        n = os.write(_lock_fd, view)
-        view = view[n:]
-    os.ftruncate(_lock_fd, len(data))
-    os.fsync(_lock_fd)
+    else:
+        os.lseek(_lock_fd, 0, os.SEEK_SET)
+        view = memoryview(data)
+        while view:
+            n = os.write(_lock_fd, view)
+            view = view[n:]
+        os.ftruncate(_lock_fd, len(data))
+        os.fsync(_lock_fd)
+    # 写成功后再刷新备份，保证备份与当前密码一致
+    _write_backup(text)
 
 
 def process_password_requests() -> bool:
