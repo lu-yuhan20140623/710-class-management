@@ -162,6 +162,7 @@ disabled_ranges.json
 time_modified.marker
 updates/
 update_state.json
+setup.iss
 .open_score.request
 .show_ball.request
 plugins_data/
