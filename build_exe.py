@@ -57,6 +57,7 @@ APP_FILES = [
     "plugin_events.py",
     "plugin_api.py",
     "lan_server.py",
+    "cloud_relay.py",
     "instance_guard.py",
     "roles.py",
     "entry.py",
@@ -145,6 +146,8 @@ def build_exe(exe_name: str, entry: str, noconsole: bool, hidden: list):
         "--noconfirm",
         "--collect-submodules=tkinter",
         "--collect-submodules=openpyxl",
+        # 云同步的 AES-GCM（OpenSSL 二进制由 PyInstaller 钩子收集）
+        "--collect-submodules=cryptography",
     ]
     if noconsole:
         cmd.append("--noconsole")

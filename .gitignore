@@ -153,6 +153,7 @@ archive_state.json
 卫生记录.xlsx
 boot_state.json
 settings.json
+relay_secret.json
 overrides.json
 disabled_ranges.json
 .backend.pid

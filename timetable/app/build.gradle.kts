@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// 令牌不入库：从 gitignore 的 local.properties 注入，源码里不出现明文
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val relayToken = localProps.getProperty("relay.token", "")
 
 android {
     namespace = "com.example.timetable"
@@ -12,7 +21,8 @@ android {
         minSdk = 24
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.1.0"
+        buildConfigField("String", "RELAY_TOKEN", "\"$relayToken\"")
     }
 
     buildTypes {

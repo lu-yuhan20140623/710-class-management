@@ -220,7 +220,7 @@ class ScheduleUI:
             .pack(side=tk.LEFT, fill=tk.X, expand=True)
         row2 = tk.Frame(btn_frame, bg=BG_PANEL)
         row2.pack(fill=tk.X, pady=2)
-        self._big_button(row2, "⚙ 课程设置", self._open_settings)\
+        self._big_button(row2, "⚙ 设置", self._open_settings)\
             .pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
         self._big_button(row2, "📋 值日生任命", self._open_duty_admin)\
             .pack(side=tk.LEFT, fill=tk.X, expand=True)

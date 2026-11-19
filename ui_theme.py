@@ -1,6 +1,7 @@
 """Tkinter 主题与 DPI 工具：配色常量、高 DPI 适配、窗口尺寸计算、ttk 暗色主题。"""
 import os
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 
 # ---------- 颜色主题 ----------
@@ -128,9 +129,15 @@ def _apply_ttk_theme(root):
     style.map("TNotebook.Tab",
               background=[("selected", BG_CELL)],
               foreground=[("selected", FG_ACCENT)])
+    # 表格行高按实际字体高度算，高分屏下文字不会被上下裁掉
+    try:
+        _line = tkfont.Font(root=root, family="Microsoft YaHei UI",
+                            size=10).metrics("linespace")
+    except Exception:
+        _line = 20
     style.configure("Treeview",
                     background=BG_CELL, foreground=FG_TEXT,
-                    fieldbackground=BG_CELL, rowheight=26,
+                    fieldbackground=BG_CELL, rowheight=_line + 8,
                     font=("Microsoft YaHei UI", 10))
     style.configure("Treeview.Heading",
                     background=BG_PANEL, foreground=FG_ACCENT,

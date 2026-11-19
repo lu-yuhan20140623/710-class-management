@@ -285,7 +285,7 @@ class TeacherLoginDialog(_Dialog):
         super().__init__(parent, "教师端 · 密钥", 420, 260)
         self._label("教师密钥", 0)
         if auth.is_default():
-            self._label("初始密钥为 710，登录后可在「课程设置 → 密钥管理」修改", 1, FG_DIM, 9)
+            self._label("初始密钥为 710，登录后可在「设置 → 密钥管理」修改", 1, FG_DIM, 9)
         self.e_key = self._entry(2, show="*")
         self.e_key.focus_set()
         self.win.bind("<Return>", lambda e: self._on_login())

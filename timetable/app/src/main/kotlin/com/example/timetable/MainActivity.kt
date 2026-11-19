@@ -51,7 +51,6 @@ class MainActivity : Activity() {
     private lateinit var statusLabel: TextView
     private lateinit var topBar: LinearLayout
     private var currentTab = 0
-    private var approvalWatcher: ApprovalWatcher? = null
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private var pendingSnapshot: JSONObject? = null
@@ -60,10 +59,16 @@ class MainActivity : Activity() {
     }
 
     private val prefs by lazy { getSharedPreferences("lan_config", MODE_PRIVATE) }
-    private val client = LanClient(
-        onSnapshot = { json -> runOnUiThread { applySnapshot(json) } },
-        onStatus = { text, ok -> runOnUiThread { updateStatus(text, ok) } }
-    )
+    private val manager by lazy {
+        ConnectionManager(
+            this,
+            onSnapshot = { json -> runOnUiThread { applySnapshot(json) } },
+            onStatus = { text, ok -> runOnUiThread { updateStatus(text, ok) } },
+            onApproval = { id, title, detail ->
+                runOnUiThread { askApproval(id, title, detail) }
+            },
+        )
+    }
 
     companion object {
         private const val KEY_URL = "server_url"
@@ -72,6 +77,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        RelayLog.init(filesDir)
         requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         // targetSdk 36 在 Android 15+ 默认 edge-to-edge，需自行处理系统栏内边距
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -106,26 +112,17 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        val url = prefs.getString(KEY_URL, "") ?: ""
-        if (url.isBlank()) {
-            updateStatus("未连接 · 点此设置电脑地址", false)
-        } else {
-            connect(url)
-        }
+        manager.start()
     }
 
     override fun onStop() {
-        client.stop()
-        approvalWatcher?.stop()
-        approvalWatcher = null
+        manager.stop()
         uiHandler.removeCallbacks(renderPending)
         super.onStop()
     }
 
     override fun onDestroy() {
-        client.stop()
-        approvalWatcher?.stop()
-        approvalWatcher = null
+        manager.stop()
         uiHandler.removeCallbacks(renderPending)
         super.onDestroy()
     }
@@ -142,7 +139,11 @@ class MainActivity : Activity() {
         if (!::pageContainer.isInitialized) return
         AppData.applySnapshot(json)
         classLabel.text = "  ·  ${AppData.className}"
-        updateStatus("已连接 · ${AppData.className}", true)
+        val via = manager.modeLabel
+        updateStatus(
+            "已连接 · ${AppData.className}" + if (via.isEmpty()) "" else " · $via",
+            true
+        )
         rebuildPages()
     }
 
@@ -159,22 +160,6 @@ class MainActivity : Activity() {
         switchPage(index)
     }
 
-    private fun connect(rawUrl: String) {
-        val url = normalizeUrl(rawUrl)
-        if (url.isEmpty()) return
-        updateStatus("连接中…", false)
-        client.start(url)
-        startApprovalWatcher(url)
-    }
-
-    // 轮询电脑端“待手机确认”的重置请求
-    private fun startApprovalWatcher(base: String) {
-        approvalWatcher?.stop()
-        approvalWatcher = ApprovalWatcher(base) { id, title, detail ->
-            runOnUiThread { askApproval(id, title, detail) }
-        }.also { it.start() }
-    }
-
     private fun askApproval(id: String, title: String, detail: String) {
         if (isFinishing) return
         val text = (if (title.isBlank()) "电脑端请求重置一个密钥" else title) +
@@ -185,10 +170,10 @@ class MainActivity : Activity() {
                 .setTitle("电脑端请求确认")
                 .setMessage(text)
                 .setPositiveButton("同意") { _, _ ->
-                    approvalWatcher?.postDecision(id, true)
+                    manager.postDecision(id, true)
                 }
                 .setNegativeButton("拒绝") { _, _ ->
-                    approvalWatcher?.postDecision(id, false)
+                    manager.postDecision(id, false)
                 }
                 .setCancelable(false)
                 .show()
@@ -196,39 +181,106 @@ class MainActivity : Activity() {
         }
     }
 
+    private var lastErrorText = ""
+
     private fun updateStatus(text: String, ok: Boolean) {
         if (!::statusLabel.isInitialized) return
         statusLabel.text = text
         statusLabel.setTextColor(
             Color.parseColor(if (ok) "#B9F6CA" else "#FFE0B2")
         )
+        // 云同步报错时弹一次详情，避免状态栏截断后看不到原因
+        if (!ok && text.startsWith("云同步异常") && text != lastErrorText) {
+            lastErrorText = text
+            showSyncError(text)
+        }
     }
 
-    // 弹出地址设置框：电脑端「更多功能 → 局域网连接（手机）」里有地址
-    private fun showServerDialog() {
-        val input = EditText(this).apply {
-            hint = "http://192.168.1.23:8765"
-            setText(prefs.getString(KEY_URL, ""))
-            setSingleLine()
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or
-                    android.text.InputType.TYPE_TEXT_VARIATION_URI
-            setTextColor(Color.parseColor("#1A1A2E"))
-            setPadding(dp2px(16), dp2px(8), dp2px(16), dp2px(8))
+    private fun showSyncError(message: String) {
+        if (isFinishing) return
+        val tail = RelayLog.read().lines().filter { it.isNotBlank() }
+            .takeLast(8).joinToString("\n")
+        try {
+            AlertDialog.Builder(this)
+                .setTitle("云同步失败")
+                .setMessage(message + "\n\n最近日志：\n" + tail)
+                .setPositiveButton("知道了", null)
+                .setNeutralButton("完整日志") { _, _ -> showRelayLog() }
+                .show()
+        } catch (_: Throwable) {
         }
+    }
+
+    // 连接设置：电脑地址（可选）+ Gitee 云同步
+    private fun showSettingsDialog() {
+        val cfg = manager.cloudConfig()
+        val pad = dp2px(16)
+
+        fun field(hintText: String, value: String): EditText = EditText(this).apply {
+            hint = hintText
+            setText(value)
+            setSingleLine()
+            setTextColor(Color.parseColor("#1A1A2E"))
+            setPadding(pad, dp2px(6), pad, dp2px(6))
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, dp2px(8), pad, 0)
+        }
+        val eLan = field("电脑地址（可留空）http://192.168.1.23:8765", manager.lanUrl())
+        val eRepo = field("Gitee 仓库 用户名/仓库名", "${cfg.owner}/${cfg.repo}")
+        val eBranch = field("分支", cfg.branch)
+        val eToken = field("Gitee 访问令牌", cfg.token)
+        listOf(eLan, eRepo, eBranch, eToken).forEach { layout.addView(it) }
+        layout.addView(TextView(this).apply {
+            text = "优先尝试局域网直连，探测 1.2 秒不通就自动走 Gitee 云同步。\n" +
+                    "令牌在 Gitee「设置 → 私人令牌」生成，勾选 projects 权限。"
+            setTextColor(Color.parseColor("#707080"))
+            textSizeSp(11)
+            setPadding(pad, dp2px(8), pad, 0)
+        })
+
         AlertDialog.Builder(this)
-            .setTitle("电脑端地址")
-            .setMessage("在电脑上打开「更多功能 → 局域网连接（手机）」，把显示的地址填到这里。手机需与电脑连接同一个 Wi-Fi。")
-            .setView(input)
-            .setPositiveButton("连接") { _, _ ->
-                val url = normalizeUrl(input.text.toString())
-                if (url.isEmpty()) {
-                    Toast.makeText(this, "地址不能为空", Toast.LENGTH_SHORT).show()
-                } else {
-                    prefs.edit().putString(KEY_URL, url).apply()
-                    connect(url)
+            .setTitle("连接设置")
+            .setView(layout)
+            .setPositiveButton("保存并连接") { _, _ ->
+                val lan = normalizeUrl(eLan.text.toString())
+                val repoRaw = eRepo.text.toString().trim().trim('/')
+                if (repoRaw.isNotBlank() && !repoRaw.contains("/")) {
+                    Toast.makeText(this, "仓库要填成 用户名/仓库名", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
                 }
+                val cloud = CloudConfig(
+                    owner = repoRaw.substringBefore("/", ""),
+                    repo = repoRaw.substringAfter("/", ""),
+                    branch = eBranch.text.toString().trim().ifEmpty { "master" },
+                    token = eToken.text.toString().trim(),
+                )
+                manager.saveConfig(lan, cloud)
+                manager.restart()
+                updateStatus("连接中…", false)
             }
             .setNegativeButton("取消", null)
+            .setNeutralButton("同步日志") { _, _ -> showRelayLog() }
+            .show()
+    }
+
+    /** 云同步诊断日志：只读展示，方便排查“写入失败”这类问题。 */
+    private fun showRelayLog() {
+        val tv = TextView(this).apply {
+            text = RelayLog.read()
+            textSizeSp(10)
+            setTextIsSelectable(true)
+            setTextColor(Color.parseColor("#1A1A2E"))
+            setPadding(dp2px(12), dp2px(8), dp2px(12), dp2px(8))
+        }
+        val scroll = ScrollView(this).apply { addView(tv) }
+        AlertDialog.Builder(this)
+            .setTitle("云同步日志")
+            .setView(scroll)
+            .setPositiveButton("关闭", null)
+            .setNeutralButton("清空") { _, _ -> RelayLog.clear() }
             .show()
     }
 
@@ -297,7 +349,7 @@ class MainActivity : Activity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(ctx.dp2px(8), 0, 0, 0)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setOnClickListener { showServerDialog() }
+            setOnClickListener { showSettingsDialog() }
         }
         topBar.addView(statusLabel)
         topBar.addView(TextView(ctx).apply {

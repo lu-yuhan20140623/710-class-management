@@ -1,4 +1,4 @@
-"""Tkinter 对话框：时间调试、课程设置、局域网连接、密钥验证。"""
+"""Tkinter 对话框：时间调试、设置、局域网连接、密钥验证。"""
 import threading
 import tkinter as tk
 from datetime import datetime, timedelta
@@ -241,7 +241,7 @@ class SettingsDialog:
         self.ui = ui if ui is not None else self._NullUI()
 
         self.win = tk.Toplevel(root)
-        self.win.title("课程设置")
+        self.win.title("设置")
         self.win.configure(bg=BG_MAIN)
         self.win.transient(root)
         self.win.grab_set()
@@ -253,6 +253,7 @@ class SettingsDialog:
         self._tab_disabled(notebook)
         self._tab_override(notebook)
         self._tab_password(notebook)
+        self._tab_cloud(notebook)
 
         # 选项卡内容建完后再居中并按内容自适应尺寸
         center_window(self.win, root, 560, 560)
@@ -479,7 +480,104 @@ class SettingsDialog:
                   relief=tk.FLAT, font=("Microsoft YaHei UI", 10),
                   padx=12, pady=4, cursor="hand2").pack(side=tk.LEFT)
 
-    # ---- Tab: 修改密钥 ----
+    # ---- Tab: 云同步 ----
+    def _tab_cloud(self, nb):
+        from cloud_relay import config as relay_config, save_config, status as relay_status
+
+        tab = tk.Frame(nb, bg=BG_PANEL)
+        nb.add(tab, text="云同步")
+
+        tk.Label(tab, text="Gitee 云端中继",
+                 font=("Microsoft YaHei UI", 12, "bold"),
+                 bg=BG_PANEL, fg=FG_ACCENT).pack(anchor=tk.W, padx=14, pady=(14, 2))
+        tk.Label(tab,
+                 text="手机与电脑不在同一 Wi-Fi 时，两端通过 Gitee 仓库交换数据。\n"
+                      "数据先做 AES-GCM 加密再上传；密钥由两端模幂协商，不经过网络。",
+                 font=("Microsoft YaHei UI", 9), bg=BG_PANEL, fg=FG_DIM,
+                 justify=tk.LEFT).pack(anchor=tk.W, padx=14, pady=(0, 10))
+
+        cfg = relay_config()
+        form = tk.Frame(tab, bg=BG_PANEL)
+        form.pack(padx=14, fill=tk.X)
+
+        def row(label, value="", show=None):
+            c = tk.Frame(form, bg=BG_PANEL)
+            c.pack(fill=tk.X, pady=4)
+            tk.Label(c, text=label, width=10, anchor="w", bg=BG_PANEL, fg=FG_TEXT,
+                     font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+            e = tk.Entry(c, width=32, font=("Consolas", 10),
+                         bg=BG_CELL, fg=FG_TEXT, insertbackground=FG_TEXT,
+                         relief=tk.FLAT, show=show or "")
+            e.insert(0, value)
+            e.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+            return e
+
+        enabled_var = tk.BooleanVar(value=cfg["enabled"])
+        tk.Checkbutton(form, text="启用云同步", variable=enabled_var,
+                       bg=BG_PANEL, fg=FG_TEXT, selectcolor=BG_CELL,
+                       activebackground=BG_PANEL, activeforeground=FG_TEXT,
+                       font=("Microsoft YaHei UI", 10)).pack(anchor=tk.W, pady=(0, 6))
+        e_repo = row("仓库", f'{cfg["owner"]}/{cfg["repo"]}')
+        e_branch = row("分支", cfg["branch"])
+        e_token = row("访问令牌", cfg["token"], show="●")
+
+        tip = tk.Label(tab,
+                       text="令牌在 Gitee「设置 → 私人令牌」生成，勾选 projects 权限。\n"
+                            "手机端「设置」里填写同一仓库和令牌即可自动配对。",
+                       font=("Microsoft YaHei UI", 9), bg=BG_PANEL, fg=FG_DIM,
+                       justify=tk.LEFT)
+        tip.pack(anchor=tk.W, padx=14, pady=(8, 4))
+
+        msg = tk.Label(tab, text="", font=("Microsoft YaHei UI", 9),
+                       bg=BG_PANEL, fg=FG_DIM, justify=tk.LEFT)
+        msg.pack(anchor=tk.W, padx=14, pady=4)
+
+        def refresh_status():
+            if not self.win.winfo_exists():
+                return
+            st = relay_status()
+            if not st.get("enabled"):
+                # 刚保存的那 1~2 秒后台还没读到新配置，别误报成“未启用”
+                now_cfg = relay_config()
+                if now_cfg.get("enabled") and now_cfg.get("token"):
+                    text, fg = "状态：正在启用…", FG_WARN
+                else:
+                    text, fg = "状态：未启用（或未填写令牌）", FG_WARN
+            elif st.get("last_error"):
+                text, fg = f'状态：异常 · {st["last_error"]}', FG_DANGER
+            elif st.get("paired"):
+                when = ""
+                if st.get("uploaded_at"):
+                    when = " · 最近上传 " + datetime.fromtimestamp(
+                        st["uploaded_at"]).strftime("%H:%M:%S")
+                text, fg = f'状态：已配对 · {st.get("repo", "")}{when}', FG_OK
+            else:
+                text, fg = "状态：等待手机端配对…", FG_WARN
+            msg.config(text=text, fg=fg)
+            self.win.after(2000, refresh_status)
+
+        def do_save():
+            raw_repo = e_repo.get().strip().strip("/")
+            if "/" not in raw_repo:
+                messagebox.showwarning("格式不对", "仓库请填成 用户名/仓库名，例如 lu-yuhan20140623/710",
+                                       parent=self.win)
+                return
+            owner, repo = raw_repo.split("/", 1)
+            save_config(
+                enabled=bool(enabled_var.get()),
+                owner=owner.strip(), repo=repo.strip(),
+                branch=e_branch.get().strip() or "master",
+                token=e_token.get().strip(),
+            )
+            msg.config(text="✓ 已保存，后台会自动重新连接", fg=FG_OK)
+
+        tk.Button(tab, text="保存云同步设置", command=do_save,
+                  bg=BG_IN_CLASS, fg=FG_TEXT, activebackground="#4b7b4b",
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 10, "bold"),
+                  padx=14, pady=6, cursor="hand2").pack(anchor=tk.W, padx=14, pady=10)
+
+        refresh_status()
+
     def _tab_password(self, nb):
         tab = tk.Frame(nb, bg=BG_PANEL)
         nb.add(tab, text="密钥管理")

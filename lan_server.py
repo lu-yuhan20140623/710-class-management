@@ -431,6 +431,7 @@ def snapshot() -> dict:
         "students": _student_rows(cls),
         "groups": _group_scores(cls),
         "hygiene": _hygiene_view(cls),
+        "approvals": pending_approvals(),
     }
 
 
