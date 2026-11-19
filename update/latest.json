@@ -1,13 +1,16 @@
 {
-  "version": "2.1.0",
-  "published_at": "2026-11-18",
-  "previous_version": "2.0.0",
+  "version": "2.2.0",
+  "published_at": "2026-11-19",
+  "previous_version": "2.1.1",
   "exe_changed": false,
-  "notes": "新增自动更新：开机检查新版本，增量补丁或完整安装包自动下载，应用后自动重启。",
-  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.1.0",
-  "renew": null,
+  "notes": "手机端不再依赖同一 Wi-Fi：优先局域网直连，不通自动走 Gitee 加密中继。新增云同步设置与同步日志，修复密钥重置确认与重复弹窗。",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.0",
+  "renew": {
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.0/renew_2.1.1_to_2.2.0.zip",
+    "sha256": "4fc47768aaa5d6441eaefabba09b2d7041f797286d6e1c3f2769ac2333b20627"
+  },
   "setup": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.1.0/ClassSchedule_Setup_2.1.0.exe",
-    "sha256": "bec7ff62b4ac2809d2d71678b60fd96476aea880f08fdd3589049db736b60d4d"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.0/ClassSchedule_Setup_2.2.0.exe",
+    "sha256": "5df99eb1f9c60e7ec502fa22a484d3766fe92a4f8e290e01938c603c6a10d3df"
   }
 }
