@@ -148,6 +148,9 @@ def build_exe(exe_name: str, entry: str, noconsole: bool, hidden: list):
     ]
     if noconsole:
         cmd.append("--noconsole")
+    icon = ROOT / "assets" / "app.ico"
+    if icon.exists():
+        cmd.append(f"--icon={icon}")
     for m in hidden:
         cmd.append(f"--hidden-import={m}")
     # 业务代码必须从 app/ 加载，禁止打进 exe

@@ -412,6 +412,16 @@ class ScheduleUI:
             if self.disabled_card.winfo_ismapped():
                 self.disabled_card.pack_forget()
 
+    def _set_card_bg(self, color: str):
+        """状态卡/倒计时卡换色时同步文字背景，避免文字周围残留深色方块。"""
+        for card in (self.state_card, self.countdown_card):
+            card.config(bg=color)
+            for child in card.winfo_children():
+                try:
+                    child.config(bg=color)
+                except tk.TclError:
+                    pass
+
     def _apply_state(self, info: dict):
         now = datetime.now()
         self.clock_label.config(text=now.strftime("%Y-%m-%d %H:%M:%S"))
@@ -427,8 +437,7 @@ class ScheduleUI:
             self.countdown_label.config(text="禁用中", fg=FG_DANGER)
             self.next_subject_label.config(text="")
             self.hint_label.config(text="根据管理员设置，当前时间段不提醒")
-            self.state_card.config(bg="#4a1e1e")
-            self.countdown_card.config(bg="#4a1e1e")
+            self._set_card_bg("#4a1e1e")
             return
 
         if day < 0:
@@ -438,8 +447,7 @@ class ScheduleUI:
             self.countdown_label.config(text="--:--", fg=FG_ACCENT)
             self.next_subject_label.config(text="")
             self.hint_label.config(text="")
-            self.state_card.config(bg=BG_CELL)
-            self.countdown_card.config(bg=BG_CELL)
+            self._set_card_bg(BG_CELL)
             return
 
         day_name = sch.WEEKDAY_NAMES[day]
@@ -456,8 +464,7 @@ class ScheduleUI:
             self.next_subject_label.config(
                 text=f"下一节：{info.get('next_name', '')} {info.get('next_subject', '')}".strip())
             self.hint_label.config(text="正在上课中")
-            self.state_card.config(bg=BG_IN_CLASS)
-            self.countdown_card.config(bg=BG_IN_CLASS)
+            self._set_card_bg(BG_IN_CLASS)
 
         elif info["state"] in ("before_class", "between_class"):
             name = info.get("next_name") or f"第{info.get('next_period')}节"
@@ -472,18 +479,15 @@ class ScheduleUI:
                 mm, ss = divmod(max(info.get("seconds_to_prebell", 0), 0), 60)
                 self.countdown_label.config(text=f"{mm:02d}:{ss:02d}", fg=FG_WARN)
                 self.hint_label.config(text="⏰ 2 分钟倒计时窗口（预备铃前）")
-                self.state_card.config(bg=BG_COUNTING)
-                self.countdown_card.config(bg=BG_COUNTING)
+                self._set_card_bg(BG_COUNTING)
             elif info.get("is_prebell"):
                 self.countdown_label.config(text="预备铃已响", fg=FG_PREBELL)
                 self.hint_label.config(text="🔔 预备铃已响 · 请立即回座位")
-                self.state_card.config(bg=BG_PREBELL)
-                self.countdown_card.config(bg=BG_PREBELL)
+                self._set_card_bg(BG_PREBELL)
             else:
                 self.countdown_label.config(text="--:--", fg=FG_ACCENT)
                 self.hint_label.config(text="临近上课前 4 分钟进入倒计时")
-                self.state_card.config(bg=BG_CELL)
-                self.countdown_card.config(bg=BG_CELL)
+                self._set_card_bg(BG_CELL)
 
         elif info["state"] == "after_school":
             self.state_title.config(text=f"已放学 · {day_name}")
@@ -493,8 +497,7 @@ class ScheduleUI:
             self.countdown_label.config(text="—", fg=FG_ACCENT)
             self.next_subject_label.config(text="")
             self.hint_label.config(text="完成作业 · 早点休息")
-            self.state_card.config(bg=BG_CELL)
-            self.countdown_card.config(bg=BG_CELL)
+            self._set_card_bg(BG_CELL)
 
         self._apply_current_colors()
 
