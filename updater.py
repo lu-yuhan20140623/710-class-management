@@ -60,35 +60,35 @@ def apply_patch(patch_path) -> tuple:
             shutil.copy2(old_manifest, backup / vm.MANIFEST_NAME)
 
         try:
-            if incremental:
-                names = set(patch.get("changed", [])) | set(patch.get("added", []))
-                for name in names:
-                    if (payload / name).exists():
-                        _copy(payload / name, target / name)
-                for name in patch.get("removed", []):
-                    (target / name).unlink(missing_ok=True)
-            else:
-                # 基准哈希对不上：补丁里只有变化的文件，未变化的沿用本地现有文件，
-                # 只删除新版本清单里已经不存在的残留代码
-                names = set(patch.get("changed", [])) | set(patch.get("added", []))
-                for name in names:
-                    if (payload / name).exists():
-                        _copy(payload / name, target / name)
-                for name in patch.get("removed", []):
-                    (target / name).unlink(missing_ok=True)
-                if full_expected:
-                    for f in target.glob("*.py"):
-                        if f.name not in full_expected:
-                            f.unlink()
+            names = set(patch.get("changed", [])) | set(patch.get("added", []))
+            for name in names:
+                if (payload / name).exists():
+                    _copy(payload / name, target / name)
+            for name in patch.get("removed", []):
+                (target / name).unlink(missing_ok=True)
 
-            expected = patch.get("files", {}) if incremental else full_expected
-            bad = [name for name, h in expected.items()
+            # 清掉新版本清单之外的多余 .py（老版本残留会让整包哈希永远对不上）
+            if full_expected:
+                for f in target.glob("*.py"):
+                    if f.name not in full_expected:
+                        f.unlink()
+
+            # 以新版本的完整清单校验，不能只看补丁里带的文件
+            bad = [name for name, h in full_expected.items()
                    if not (target / name).exists()
                    or vm.sha256_file(target / name) != h]
             if bad:
                 raise RuntimeError("文件校验失败：" + "、".join(bad))
 
             _copy(new_manifest, old_manifest)
+
+            after = vm.status()
+            if not after.get("matches"):
+                raise RuntimeError(
+                    "更新后整包哈希不一致：当前 %s，应为 %s"
+                    % (str(after.get("current_hash"))[:12],
+                       str(after.get("bundle_hash"))[:12])
+                )
         except Exception:
             for f in target.glob("*.py"):
                 f.unlink()
@@ -98,13 +98,10 @@ def apply_patch(patch_path) -> tuple:
                 shutil.copy2(backup / vm.MANIFEST_NAME, old_manifest)
             raise
 
-        after = vm.status()
         mode = "增量更新" if incremental else "整包替换"
         lines = [f"补丁应用成功（{mode}）：{before.get('version') or '未知'} → {after.get('version')}"]
         if patch.get("exe_changed"):
             lines.append("注意：运行文件（exe）也有更新，代码已替换，建议使用完整安装包覆盖 exe。")
-        if not after.get("matches"):
-            lines.append("警告：更新后校验未通过，请使用完整安装包重新安装。")
         return True, "\n".join(lines)
 
     except Exception as exc:

@@ -24,7 +24,12 @@ import sys
 
 import lan_server
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+except ImportError:
+    # 2.1.x 的运行文件里没有打包 cryptography，用增量补丁升级后会走到这里：
+    # 只让云同步报错提示换完整安装包，不能连累整个后台启动失败
+    AESGCM = None
 
 if getattr(sys, "frozen", False):
     APP_DIR = Path(sys.executable).parent.resolve()
@@ -140,13 +145,20 @@ def _unb64(text: str) -> bytes:
     return base64.b64decode(text)
 
 
+def _require_aes():
+    if AESGCM is None:
+        raise RuntimeError("当前运行文件缺少加密组件，请用完整安装包覆盖更新")
+
+
 def encrypt_text(key: bytes, text: str) -> str:
+    _require_aes()
     nonce = secrets.token_bytes(12)
     body = AESGCM(key).encrypt(nonce, text.encode("utf-8"), AAD)
     return _b64(nonce + body)
 
 
 def decrypt_text(key: bytes, token: str) -> str:
+    _require_aes()
     raw = _unb64(token)
     return AESGCM(key).decrypt(raw[:12], raw[12:], AAD).decode("utf-8")
 
