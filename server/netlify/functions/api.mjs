@@ -345,16 +345,6 @@ export default async function handler(req) {
     const method = req.method.toUpperCase();
 
     if (seg.length === 1 && seg[0] === "health") {
-      if (new URL(req.url).searchParams.get("store") === "1") {
-        try {
-          const s = await store();
-          await s.setJSON("probe/health", { t: Date.now() });
-          const back = await s.get("probe/health", { type: "json" });
-          return json({ ok: true, wrote: !!back });
-        } catch (e) {
-          return json({ ok: false, err: String((e && e.stack) || e) });
-        }
-      }
       return json({ ok: true, service: "class-schedule-relay", time: Date.now() });
     }
     if (seg.length === 1 && seg[0] === "register" && method === "POST") {
