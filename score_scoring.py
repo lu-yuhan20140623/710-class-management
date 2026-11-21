@@ -28,11 +28,13 @@ class ScoreScoringMixin:
                     if group:
                         sids += [s for s in group.get("members", []) if s in stu]
             elif self.view_mode == "group":
-                gname = self._pick_group("评价打分")
-                if not gname:
+                gnames = self._pick_groups("评价打分")
+                if not gnames:
                     return
-                preset_groups = [gname]
-                sids = [s for s in groups[gname].get("members", []) if s in stu]
+                preset_groups = gnames
+                for gname in gnames:
+                    group = groups.get(gname) or {}
+                    sids += [s for s in group.get("members", []) if s in stu]
             else:
                 if not self._selected_or_warn():
                     return
@@ -341,10 +343,13 @@ class ScoreScoringMixin:
         stu = self.all_students.get(self.current_class, {})
         sids = [s for s in sorted(self.selected_ids) if s in stu]
         if not sids and self.view_mode == "group":
-            gname = self._pick_group("手动修改积分")
-            if not gname:
+            gnames = self._pick_groups("手动修改积分")
+            if not gnames:
                 return
-            sids = [s for s in self._groups()[gname].get("members", []) if s in stu]
+            for gname in gnames:
+                sids += [s for s in self._groups().get(gname, {}).get("members", [])
+                         if s in stu]
+            sids = list(dict.fromkeys(sids))
         if not sids:
             messagebox.showinfo("提示", "请先选择学生（或切换到「按学生」视图）",
                                 parent=self.win)

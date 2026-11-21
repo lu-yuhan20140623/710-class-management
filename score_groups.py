@@ -8,33 +8,55 @@ from ui import BG_CELL, BG_MAIN, BG_PANEL, FG_ACCENT, FG_DIM, FG_OK, FG_TEXT, dp
 
 
 class ScoreGroupsMixin:
-    def _pick_group(self, title, prefer=None):
-        """弹出小组选择框，返回小组名或 None。"""
+    def _pick_groups(self, title, prefer=None):
+        """弹出小组多选框，返回选中的小组名列表（取消返回空列表）。"""
         groups = self._groups()
         if not groups:
-            return None
+            messagebox.showinfo("提示", "本班还没有小组，请先在「小组管理」里创建",
+                                parent=self.win)
+            return []
         names = list(groups)
-        if prefer and len(prefer) == 1 and prefer[0] in groups:
-            return prefer[0]
-        win = self._dialog(title, 340, 160)
-        tk.Label(win, text="选择小组", font=(FONT, 12, "bold"),
+        prefer = list(prefer or [])
+        win = self._dialog(title, 360, 480)
+        tk.Label(win, text="选择小组（可多选）", font=(FONT, 12, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 8))
-        box = ttk.Combobox(win, values=names, state="readonly",
-                           width=22, font=(FONT, 10))
-        box.set(prefer[0] if prefer and prefer[0] in groups else names[0])
-        box.pack()
+        body = tk.Frame(win, bg=BG_PANEL)
+        body.pack(fill=tk.BOTH, expand=True, padx=18)
+        vars_ = {}
+        for gname in names:
+            group = groups.get(gname) or {}
+            count = len(group.get("members", []))
+            var = tk.BooleanVar(value=(gname in prefer) if prefer else True)
+            vars_[gname] = var
+            tk.Checkbutton(body, text=f"{gname}（{count}人）", variable=var,
+                           font=(FONT, 10), bg=BG_PANEL, fg=FG_TEXT,
+                           selectcolor=BG_CELL, activebackground=BG_PANEL,
+                           activeforeground=FG_ACCENT, anchor="w",
+                           padx=8, pady=4).pack(fill=tk.X, padx=6, pady=1)
         result = {}
 
+        def set_all(value):
+            for var in vars_.values():
+                var.set(value)
+
         def ok():
-            result["name"] = box.get()
+            chosen = [g for g in names if vars_[g].get()]
+            if not chosen:
+                messagebox.showinfo("提示", "请至少勾选一个小组", parent=win)
+                return
+            result["groups"] = chosen
             win.destroy()
 
+        tools = tk.Frame(win, bg=BG_MAIN)
+        tools.pack(fill=tk.X, padx=18, pady=(6, 0))
+        self._btn(tools, "全选", lambda: set_all(True)).pack(side=tk.LEFT)
+        self._btn(tools, "全不选", lambda: set_all(False)).pack(side=tk.LEFT, padx=6)
         row = tk.Frame(win, bg=BG_MAIN)
-        row.pack(pady=14)
+        row.pack(pady=10)
         self._btn(row, "确定", ok, primary=True).pack(side=tk.LEFT, padx=6)
         self._btn(row, "取消", win.destroy).pack(side=tk.LEFT, padx=6)
         self.win.wait_window(win)
-        return result.get("name")
+        return result.get("groups", [])
 
     def _open_groups(self):
         if not self._can_write():

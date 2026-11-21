@@ -57,12 +57,18 @@ def pie_chart(parent, data, size=300, max_items=12):
     # 从 12 点方向顺时针绘制
     inset = max(2, int(8 * scale))
     start = 90.0
-    for i, (_label, val) in enumerate(items):
-        extent = -360.0 * val / total
-        canvas.create_arc(inset, inset, size - inset, size - inset, start=start, extent=extent,
-                          fill=PALETTE[i % len(PALETTE)], outline=BG_PANEL,
-                          width=2)
-        start += extent
+    if len(items) == 1:
+        # 只有一类时角度是 360°，Tk 的 create_arc 画不出整圆，改用椭圆
+        canvas.create_oval(inset, inset, size - inset, size - inset,
+                           fill=PALETTE[0], outline=BG_PANEL, width=2)
+    else:
+        for i, (_label, val) in enumerate(items):
+            extent = -360.0 * val / total
+            canvas.create_arc(inset, inset, size - inset, size - inset,
+                              start=start, extent=extent,
+                              fill=PALETTE[i % len(PALETTE)], outline=BG_PANEL,
+                              width=2)
+            start += extent
 
     legend = tk.Frame(frame, bg=BG_PANEL)
     legend.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,
