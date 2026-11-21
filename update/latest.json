@@ -7,7 +7,7 @@
   "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.3",
   "setup": {
     "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.3/ClassSchedule_Setup_2.2.3.exe",
-    "fallback_url": "https://classmanagement.de5.net/downloads/ClassSchedule_Setup_2.2.3.exe",
+    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.2.3/ClassSchedule_Setup_2.2.3.exe",
     "sha256": "b9dd3805adae0af99c800fb24f863616b8c22739d10fa798ffd75c0480a03c3a"
   }
 }
