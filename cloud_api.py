@@ -31,7 +31,9 @@ try:
 except Exception:                                    # pragma: no cover
     VERSION = ""
 
-BASE_DEFAULT = "https://classmanagement.de5.net"
+BASE_DEFAULT = "https://710-class-management.pages.dev"
+# 旧默认站点：仍可用，但配置里留着它就自动换成新默认（Cloudflare Pages 更快）
+LEGACY_BASES = {"https://classmanagement.de5.net"}
 SETTINGS_FILE = cloud_relay.SETTINGS_FILE
 STATUS_FILE = cloud_relay.APP_DIR / "cloud_status.json"
 
@@ -83,9 +85,20 @@ def config() -> dict:
     raw = data.get("cloud_api") if isinstance(data, dict) else None
     if not isinstance(raw, dict):
         raw = {}
+    base = str(raw.get("base") or "").strip().rstrip("/")
+    if not base or base in LEGACY_BASES:
+        if raw.get("base"):
+            # 老配置里的旧站点地址一次性迁到新默认（直接写文件，避免 config 递归）
+            raw["base"] = BASE_DEFAULT
+            data["cloud_api"] = raw
+            try:
+                _save_json(SETTINGS_FILE, data)
+            except OSError:
+                pass
+        base = BASE_DEFAULT
     return {
         "enabled": bool(raw.get("enabled", True)),
-        "base": str(raw.get("base") or BASE_DEFAULT).rstrip("/"),
+        "base": base,
         "name": str(raw.get("name") or _default_name()).strip(),
         "device_id": str(raw.get("device_id") or "").strip(),
         "secret": str(raw.get("secret") or "").strip(),

@@ -14,14 +14,19 @@ data class BoundPc(val id: String, val name: String, val pub: String)
 
 /** 官网后端的本地存储：设备身份、服务器地址、已绑定电脑列表。 */
 object ApiStore {
-    const val DEFAULT_BASE = "https://classmanagement.de5.net"
+    const val DEFAULT_BASE = "https://710-class-management.pages.dev"
+    // 旧默认站点：已换成 Cloudflare Pages，老配置自动沿用新默认
+    private const val LEGACY_BASE = "https://classmanagement.de5.net"
     private const val PREFS = "lan_config"
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun base(ctx: Context): String =
-        (prefs(ctx).getString("api_base", "") ?: "").ifBlank { DEFAULT_BASE }
+    fun base(ctx: Context): String {
+        val stored = (prefs(ctx).getString("api_base", "") ?: "").trim().trimEnd('/')
+        if (stored.isBlank() || stored == LEGACY_BASE) return DEFAULT_BASE
+        return stored
+    }
 
     fun setBase(ctx: Context, value: String) {
         prefs(ctx).edit().putString("api_base", value.trim().trimEnd('/')).apply()
@@ -122,7 +127,9 @@ class ApiClient(
                     "CBF6955817183995497CEA956AE515D2261898FA051015728E5A8AACAA68FF" +
                     "FFFFFFFFFFFFFF", 16)
 
-        private const val POLL_MS = 8000L
+        // 上一次请求一结束就发下一次，只留极小间隔；失败才退避
+        private const val IDLE_GAP_MS = 600L
+        private const val ERROR_GAP_MS = 5000L
 
         class HttpError(val code: Int, message: String) : Exception(message)
 
@@ -231,10 +238,12 @@ class ApiClient(
     private fun loop() {
         while (running) {
             val started = System.currentTimeMillis()
+            var ok = true
             try {
                 pollInbox()
                 tick()
             } catch (e: HttpError) {
+                ok = false
                 when (e.code) {
                     403 -> {
                         ApiStore.setActive(ctx, "")
@@ -247,11 +256,14 @@ class ApiClient(
                     else -> status("官网云端异常：${e.message}", false)
                 }
             } catch (e: Exception) {
+                ok = false
                 status("官网云端不可达：${e.message ?: e.javaClass.simpleName}", false)
             }
+            // 请求完成即进入下一轮，不再固定等 8 秒
             val spent = System.currentTimeMillis() - started
+            val gap = if (ok) IDLE_GAP_MS else ERROR_GAP_MS
             try {
-                Thread.sleep((POLL_MS - spent).coerceAtLeast(1500))
+                Thread.sleep((gap - spent).coerceAtLeast(0))
             } catch (_: InterruptedException) {
             }
         }
