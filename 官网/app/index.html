@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>课程表 · 手机网页版</title>
+<meta name="description" content="课程表手机网页版：无需安装 App，iPhone、鸿蒙、Android 浏览器直接查看课表、积分与卫生。">
+<meta name="theme-color" content="#1B5E8C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="课程表">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="../assets/app.png">
+<style>
+  :root{
+    --blue:#1B5E8C; --blue-soft:#EAF2FA; --bg:#F5F6FA; --ink:#1A1A2E;
+    --muted:#707080; --line:#E3E7EE; --green:#2E7D32; --red:#C62828;
+    --amber:#F9A825; --shadow:0 1px 4px rgba(16,40,80,.08);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink); font-size:14px;
+    font-family:-apple-system,BlinkMacSystemFont,"HarmonyOS Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    min-height:100dvh;
+  }
+  header{
+    position:sticky; top:0; z-index:20;
+    background:var(--blue); color:#fff;
+    padding:calc(10px + env(safe-area-inset-top)) 14px 0;
+    box-shadow:0 2px 10px rgba(0,0,0,.12);
+  }
+  .tbar{display:flex;align-items:center;gap:6px;min-width:0}
+  .brand{font-size:18px;font-weight:700;letter-spacing:.5px;white-space:nowrap}
+  .class-label{font-size:12px;color:#B0D4EA;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .icon-btn{background:transparent;border:0;color:#fff;font-size:13px;padding:6px 8px;border-radius:8px}
+  .icon-btn:active{background:rgba(255,255,255,.14)}
+  .status{
+    display:block; width:100%; text-align:left; border:0; background:transparent;
+    color:#FFE0B2; font-size:11px; padding:2px 0 8px; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  .status.ok{color:#B9F6CA}
+  .tabs{display:flex;gap:4px;padding-bottom:8px}
+  .tab{
+    flex:1; border:0; border-radius:8px; background:transparent; color:#C0DBEE;
+    font-size:14px; font-family:inherit; padding:8px 4px; font-weight:500;
+  }
+  .tab.active{color:#FFD54F;font-weight:700;background:rgba(255,255,255,.08)}
+  main{padding:12px 12px calc(24px + env(safe-area-inset-bottom))}
+  .page{display:none}
+  .page.active{display:block}
+  .card{background:#fff;border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px}
+  .card h2{margin:0;font-size:17px;color:var(--blue)}
+  .card h3{margin:0 0 8px;font-size:14.5px;font-weight:700}
+  .state-line{color:var(--green);font-size:12px;margin-top:4px}
+  .sub-line{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .hint{color:var(--muted);font-size:11.5px;line-height:1.65}
+  .gridwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;background:#fff;border-radius:14px;padding:6px;margin-bottom:10px;box-shadow:var(--shadow)}
+  table.grid{border-collapse:separate;border-spacing:2px;width:100%;min-width:536px}
+  table.grid th{font-weight:600}
+  table.grid th.day{background:var(--blue);color:#fff;font-size:13px;height:44px;border-radius:6px}
+  table.grid th.lbl{width:58px;background:#ECEFF1;color:var(--blue);font-size:11.5px;border-radius:6px;padding:2px}
+  table.grid th.lbl b{display:block;font-size:11.5px}
+  table.grid th.lbl span{display:block;font-size:9.5px;color:#607D8B;font-weight:400}
+  table.grid td{width:96px;height:58px;text-align:center;vertical-align:middle;border-radius:6px;font-size:13px;font-weight:600;padding:4px;word-break:break-all}
+  table.grid td small{display:block;font-size:9.5px;font-weight:400;color:#546E7A;margin-top:2px}
+  table.grid td.empty{color:#BDBDBD;font-weight:400}
+  table.grid td.now{outline:2px solid #66BB6A;outline-offset:-2px}
+  .legend{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink)}
+  .legend .lrow{display:flex;align-items:center;gap:8px}
+  .legend i{width:16px;height:16px;border-radius:4px;flex:none}
+  .chips{display:flex;gap:6px;margin-top:10px}
+  .chip{flex:1;background:var(--blue-soft);border-radius:9px;padding:9px 10px;min-width:0}
+  .chip span{display:block;font-size:11px;color:var(--muted)}
+  .chip b{display:block;margin-top:2px;font-size:16px}
+  .chip b.green{color:var(--green)} .chip b.red{color:var(--red)}
+  .bars{display:flex;flex-direction:column;gap:9px}
+  .brow{display:grid;grid-template-columns:70px 1fr 46px;align-items:center;gap:8px;font-size:12px}
+  .blabel{color:#546E7A;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btrack{height:12px;background:#EEF1F6;border-radius:6px;overflow:hidden}
+  .btrack i{display:block;height:100%;border-radius:6px}
+  .bval{text-align:right;font-size:12px;font-weight:700}
+  .donut{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .donut svg{flex:none}
+  .legend-list{display:flex;flex-direction:column;gap:6px;font-size:12px;flex:1;min-width:140px}
+  .legend-list .lrow{display:flex;align-items:center;gap:7px}
+  .legend-list i{width:9px;height:9px;border-radius:50%;flex:none}
+  .legend-list span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .legend-list b{font-weight:700}
+  .rank-row{display:flex;align-items:center;gap:7px}
+  .rank-row .medal{font-size:19px}
+  .rank-row .gname{font-size:16.5px;font-weight:700}
+  .rank-row .leader{font-size:11.5px;color:var(--muted)}
+  .rank-row .total{flex:1;text-align:right;font-size:21px;font-weight:700}
+  .total.pos{color:var(--green)} .total.neg{color:var(--red)}
+  .tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:3px 8px;margin-right:6px}
+  .tag.pos{background:#E8F5E9;color:var(--green)} .tag.neg{background:#FFEBEE;color:var(--red)}
+  .rec{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px}
+  .rec .t{width:66px;flex:none;color:#909090;font-size:10.5px}
+  .rec .r{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rec .d{font-weight:700;border-radius:5px;padding:2px 8px;font-size:11.5px}
+  .rec .d.pos{background:#E8F5E9;color:var(--green)} .rec .d.neg{background:#FFEBEE;color:var(--red)}
+  .divider{height:1px;background:#E0E0E0;margin:7px 0}
+  .more{text-align:center;color:#909090;font-size:11px;margin-top:4px}
+  .empty{color:var(--muted);font-size:12.5px;line-height:1.8;text-align:center;padding:10px 0}
+  .overlay{position:fixed;inset:0;background:rgba(10,20,35,.45);display:flex;align-items:center;justify-content:center;padding:18px;z-index:60}
+  .sheet{background:#fff;border-radius:16px;width:100%;max-width:430px;max-height:84dvh;overflow:auto;padding:18px}
+  .sheet h3{margin:0 0 8px;font-size:17px}
+  .sheet p{margin:0 0 8px;font-size:13px;line-height:1.65}
+  .sheet .hint{margin:0 0 8px}
+  .btnrow{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .btn{
+    flex:1;min-width:110px;border:1px solid var(--line);background:#fff;color:var(--ink);
+    border-radius:10px;padding:10px 12px;font-size:13.5px;font-family:inherit;
+  }
+  .btn:active{background:#F0F2F7}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  .btn.primary:active{background:#134566}
+  .btn.danger{color:var(--red)}
+  .fld{display:block;margin:12px 0 0;font-size:12px;color:var(--muted)}
+  .fld input{display:block;width:100%;margin-top:5px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;font-size:13px;font-family:inherit;color:var(--ink)}
+  .idbox{background:#F5F7FB;border:1px dashed #C9D6E8;border-radius:9px;padding:9px 10px;margin-top:5px;word-break:break-all;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--ink)}
+  .pcs{margin-top:14px}
+  .pc{display:block;width:100%;text-align:left;margin-top:6px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:9px 10px;font-size:13px;font-family:inherit}
+  .pc.active{border-color:var(--blue);background:var(--blue-soft);color:var(--blue);font-weight:700}
+  #toast{
+    position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translate(-50%,20px);
+    background:rgba(26,26,46,.92);color:#fff;padding:9px 16px;border-radius:20px;font-size:12.5px;
+    opacity:0;pointer-events:none;transition:.22s;z-index:80;max-width:86vw;text-align:center;
+  }
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<header>
+  <div class="tbar">
+    <span class="brand">课程表</span>
+    <span class="class-label" id="classLabel">· 七年级10班</span>
+    <button class="icon-btn" id="exportBtn" type="button">导出</button>
+    <button class="icon-btn" id="settingsBtn" type="button">设置</button>
+  </div>
+  <button class="status" id="status" type="button">正在连接…</button>
+  <nav class="tabs">
+    <button class="tab active" data-tab="0" type="button">📅 课表</button>
+    <button class="tab" data-tab="1" type="button">⭐ 积分</button>
+    <button class="tab" data-tab="2" type="button">🧹 卫生</button>
+  </nav>
+</header>
+
+<main>
+  <section class="page active" id="pageSchedule"></section>
+  <section class="page" id="pageScore"></section>
+  <section class="page" id="pageHygiene"></section>
+</main>
+
+<div id="modalRoot"></div>
+<div id="toast"></div>
+
+<script src="./relay-crypto.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  if (!window.RelayCrypto) {
+    document.getElementById("status").textContent = "加密模块加载失败，请刷新页面";
+    return;
+  }
+  var C = window.RelayCrypto;
+  var DAYS = ["周一", "周二", "周三", "周四", "周五"];
+  var COLORS = ["#1B5E8C", "#2E7D32", "#C62828", "#F9A825", "#6A1B9A", "#00838F", "#EF6C00", "#546E7A"];
+  var SUBJECT_COLORS = {
+    "语文": "#E3F2FD", "数学": "#E8EAF6", "英语": "#FCE4EC", "体育": "#E8F5E9",
+    "信息": "#E0F7FA", "音乐": "#FFF8E1", "美术": "#F3E5F5", "劳动": "#F1F8E9",
+    "地理": "#E0F2F1", "历史": "#FFEBEE", "生物": "#E6F4EA", "道法": "#E8EAF6",
+    "班会": "#FFF3E0", "选修课": "#F3E5F5"
+  };
+
+  // ---------------- 本地状态 ----------------
+  function ls(key) {
+    try { return localStorage.getItem("cs.web." + key) || ""; } catch (e) { return ""; }
+  }
+  function setLs(key, value) {
+    try {
+      if (value) localStorage.setItem("cs.web." + key, value);
+      else localStorage.removeItem("cs.web." + key);
+    } catch (e) { /* 无痕模式下忽略 */ }
+  }
+  function readJson(key, fallback) {
+    try { return JSON.parse(ls(key) || JSON.stringify(fallback)); } catch (e) { return fallback; }
+  }
+
+  var S = {
+    deviceId: ls("deviceId"),
+    secret: ls("secret"),
+    privHex: ls("priv"),
+    base: ls("base"),
+    pcs: readJson("pcs", []),
+    active: ls("active"),
+    answered: new Set(readJson("answeredApprovals", [])),
+    answeredBind: new Set(readJson("answeredBind", [])),
+    shownApprovals: new Set(),
+    shownBind: new Set(),
+    queue: [],
+    keyCache: { pub: "", key: null },
+    busy: false
+  };
+
+  function persistDevice() { setLs("deviceId", S.deviceId); setLs("secret", S.secret); }
+  function persistPcs() { setLs("pcs", JSON.stringify(S.pcs)); }
+  function persistAnswered() {
+    setLs("answeredApprovals", JSON.stringify(Array.from(S.answered)));
+    setLs("answeredBind", JSON.stringify(Array.from(S.answeredBind)));
+  }
+
+  function privateKey() {
+    if (S.privHex) {
+      try {
+        var stored = BigInt("0x" + S.privHex);
+        if (stored > 1n) return stored;
+      } catch (e) { /* 损坏则重新生成 */ }
+    }
+    var fresh = C.randomPrivate();
+    S.privHex = fresh.toString(16);
+    setLs("priv", S.privHex);
+    return fresh;
+  }
+
+  // ---------------- 数据（对应 AppData.kt） ----------------
+  var D = {
+    className: "七年级10班",
+    stateLine: "等待电脑端数据…",
+    currentDayIndex: -1,
+    currentPeriodId: -1,
+    currentName: "",
+    isInClass: false,
+    periods: [
+      { id: 1, name: "第1节", start: "08:00", end: "08:45" },
+      { id: 2, name: "第2节", start: "09:00", end: "09:45" },
+      { id: 3, name: "第3节", start: "10:15", end: "11:00" },
+      { id: 4, name: "第4节", start: "11:10", end: "11:50" },
+      { id: 5, name: "第5节", start: "13:45", end: "14:30" },
+      { id: 6, name: "第6节", start: "14:45", end: "15:30" },
+      { id: 7, name: "第7节", start: "15:45", end: "16:30" }
+    ],
+    extraSlots: [
+      { id: 99, name: "午间小练", start: "12:25", end: "12:50" },
+      { id: 100, name: "晚辅", start: "17:10", end: "18:10" }
+    ],
+    schedule: [],
+    groupScores: [],
+    students: [],
+    hygieneRecords: [],
+    hygieneTotalRecords: 0,
+    hygieneTotalDeduct: 0,
+    hygieneByGroup: [],
+    hygieneByReason: []
+  };
+
+  // ---------------- 网络 ----------------
+  function baseUrl() {
+    var base = (S.base || location.origin || "").replace(/\/+$/, "");
+    return base;
+  }
+
+  function api(method, path, body, auth) {
+    var headers = {};
+    if (auth !== false) {
+      if (!S.deviceId || !S.secret) {
+        var missing = new Error("设备未注册");
+        missing.code = 401;
+        return Promise.reject(missing);
+      }
+      headers["X-Device-Id"] = S.deviceId;
+      headers["Authorization"] = "Bearer " + S.secret;
+    }
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    return fetch(baseUrl() + path, {
+      method: method,
+      headers: headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: "no-store"
+    }).then(function (res) {
+      return res.text().then(function (text) {
+        var data = {};
+        if (text) { try { data = JSON.parse(text); } catch (e) { data = {}; } }
+        if (!res.ok) {
+          var err = new Error(data.error || ("HTTP " + res.status));
+          err.code = res.status;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  function deviceName() {
+    var ua = navigator.userAgent || "";
+    var os = "网页版";
+    if (/iPhone|iPad|iPod/i.test(ua)) os = "iPhone";
+    else if (/HarmonyOS|OpenHarmony/i.test(ua)) os = "HarmonyOS";
+    else if (/Android/i.test(ua)) os = "Android";
+    else if (/Macintosh/i.test(ua)) os = "Mac";
+    return (os + " · 网页版").slice(0, 32);
+  }
+
+  function ensureDevice() {
+    if (S.deviceId && S.secret) return Promise.resolve();
+    return api("POST", "/api/register", { kind: "phone", name: deviceName() }, false)
+      .then(function (res) {
+        S.deviceId = res.deviceId;
+        S.secret = res.secret;
+        persistDevice();
+        var el = document.getElementById("deviceIdText");
+        if (el) el.textContent = S.deviceId;
+        return null;
+      });
+  }
+
+  function keyFor(pc) {
+    if (S.keyCache.pub === pc.pub && S.keyCache.key) return Promise.resolve(S.keyCache.key);
+    return C.deriveKeyBytes(BigInt("0x" + pc.pub), privateKey()).then(function (key) {
+      S.keyCache = { pub: pc.pub, key: key };
+      return key;
+    });
+  }
+
+  // ---------------- 轮询 ----------------
+  function tick() {
+    if (S.busy) return;
+    S.busy = true;
+    var currentPc = null;
+    Promise.resolve()
+      .then(ensureDevice)
+      .then(function () { return api("GET", "/api/pair/inbox"); })
+      .then(function (inbox) {
+        (inbox.requests || []).forEach(function (item) {
+          if (!item || !item.requestId) return;
+          if (S.shownBind.has(item.requestId) || S.answeredBind.has(item.requestId)) return;
+          S.shownBind.add(item.requestId);
+          askBind(item);
+        });
+        if (!S.active) {
+          setStatus("云端在线 · 等待电脑端绑定", true);
+          return null;
+        }
+        var pc = S.pcs.filter(function (p) { return p.id === S.active; })[0];
+        if (!pc || !pc.pub) {
+          setStatus("云端在线 · 需要重新绑定电脑", true);
+          return null;
+        }
+        currentPc = pc;
+        return keyFor(pc).then(function (key) {
+          return api("GET", "/api/pc/" + encodeURIComponent(pc.id) + "/snapshot")
+            .then(function (snap) {
+              if (!snap.exists) {
+                setStatus("云端 · 等待电脑上传…", false);
+                return null;
+              }
+              return C.decryptText(key, snap.cipher).then(function (plain) {
+                applySnapshot(JSON.parse(plain));
+                setStatus("已连接 · " + D.className + " · 云端", true);
+              }).catch(function () {
+                setStatus("云端 · 等待电脑端刷新…", false);
+              });
+            })
+            .then(function () { return flushDecisions(pc.id, key); });
+        });
+      })
+      .catch(function (err) {
+        if (err && err.code === 401) {
+          S.deviceId = "";
+          S.secret = "";
+          persistDevice();
+          setStatus("云端身份失效，正在重新注册…", false);
+        } else if (err && err.code === 403) {
+          S.active = "";
+          setLs("active", "");
+          setStatus("已被电脑端解绑，等待重新绑定", true);
+        } else {
+          setStatus("云端不可达：" + ((err && err.message) || "网络错误"), false);
+        }
+      })
+      .then(function () { S.busy = false; });
+  }
+
+  function flushDecisions(pcId, key) {
+    if (!S.queue.length) return Promise.resolve();
+    var list = S.queue.slice();
+    var payload = { ts: Math.floor(Date.now() / 1000), decisions: list };
+    return C.encryptText(key, JSON.stringify(payload)).then(function (cipher) {
+      return api("POST", "/api/pc/" + encodeURIComponent(pcId) + "/actions", { cipher: cipher });
+    }).then(function () {
+      S.queue = S.queue.filter(function (d) { return list.indexOf(d) < 0; });
+      return null;
+    });
+  }
+
+  // ---------------- 绑定与确认 ----------------
+  function askBind(item) {
+    var name = item.pcName || String(item.pcId || "").slice(0, 8);
+    openModal(
+      "<h3>电脑请求绑定</h3>" +
+      "<p>「" + esc(name) + "」想把本机设为确认设备。</p>" +
+      '<p class="hint">同意后会取消订阅其他电脑，只同步这一台。</p>' +
+      '<div class="btnrow">' +
+      '<button class="btn" data-act="deny" type="button">拒绝</button>' +
+      '<button class="btn primary" data-act="allow" type="button">同意</button>' +
+      "</div>",
+      false,
+      function (sheet) {
+        sheet.querySelector('[data-act="deny"]').addEventListener("click", function () {
+          decideBind(item, false);
+        });
+        sheet.querySelector('[data-act="allow"]').addEventListener("click", function () {
+          decideBind(item, true);
+        });
+      }
+    );
+  }
+
+  function upsertPc(pc) {
+    var found = false;
+    S.pcs = S.pcs.map(function (p) {
+      if (p.id !== pc.id) return p;
+      found = true;
+      return { id: pc.id, name: pc.name || p.name, pub: pc.pub || p.pub };
+    });
+    if (!found) S.pcs.push({ id: pc.id, name: pc.name || "", pub: pc.pub || "" });
+    persistPcs();
+  }
+
+  function decideBind(item, approve) {
+    S.answeredBind.add(item.requestId);
+    persistAnswered();
+    closeModal();
+    var body = { approve: approve };
+    if (approve) body.pub = C.publicHex(privateKey());
+    api("POST", "/api/pair/inbox/" + encodeURIComponent(item.requestId) + "/decide", body)
+      .then(function (res) {
+        if (approve && res.status === "approved") {
+          upsertPc({ id: res.pcId, name: res.pcName || "", pub: res.pcPub || "" });
+          S.active = res.pcId;
+          setLs("active", S.active);
+          S.keyCache = { pub: "", key: null };
+          toast("已绑定，开始同步");
+          tick();
+        } else {
+          toast("已拒绝该电脑的绑定");
+        }
+      })
+      .catch(function (err) { toast("绑定结果上报失败：" + err.message); });
+  }
+
+  function handleApprovals(list) {
+    if (!Array.isArray(list)) return;
+    var pending = new Set();
+    list.forEach(function (item) {
+      if (!item || !item.id) return;
+      pending.add(item.id);
+      if (S.shownApprovals.has(item.id) || S.answered.has(item.id)) return;
+      S.shownApprovals.add(item.id);
+      askApproval(item);
+    });
+    Array.from(S.shownApprovals).forEach(function (id) {
+      if (!pending.has(id)) S.shownApprovals.delete(id);
+    });
+    var changed = false;
+    Array.from(S.answered).forEach(function (id) {
+      if (!pending.has(id)) { S.answered.delete(id); changed = true; }
+    });
+    if (changed) persistAnswered();
+  }
+
+  function askApproval(item) {
+    var title = item.title || "电脑端请求重置一个密钥";
+    var detail = item.detail || "";
+    openModal(
+      "<h3>电脑端请求确认</h3>" +
+      "<p>" + esc(title) + "</p>" +
+      (detail ? '<p class="hint">' + esc(detail) + "</p>" : "") +
+      '<p class="hint">只有你本人确认时才点击「同意」。</p>' +
+      '<div class="btnrow">' +
+      '<button class="btn" data-act="deny" type="button">拒绝</button>' +
+      '<button class="btn primary" data-act="allow" type="button">同意</button>' +
+      "</div>",
+      false,
+      function (sheet) {
+        sheet.querySelector('[data-act="deny"]').addEventListener("click", function () {
+          postDecision(item.id, false);
+        });
+        sheet.querySelector('[data-act="allow"]').addEventListener("click", function () {
+          postDecision(item.id, true);
+        });
+      }
+    );
+  }
+
+  function postDecision(id, approve) {
+    S.answered.add(id);
+    persistAnswered();
+    S.queue.push({ id: id, approve: approve });
+    closeModal();
+    tick();
+  }
+
+  // ---------------- 快照解析（对应 AppData.applySnapshot） ----------------
+  function applySnapshot(root) {
+    if (!root || typeof root !== "object") return;
+    if (root.class_name) D.className = String(root.class_name);
+
+    if (root.state && typeof root.state === "object") {
+      var st = root.state;
+      D.currentDayIndex = num(st.day, -1);
+      D.currentPeriodId = typeof st.current_period === "number" ? st.current_period : -1;
+      D.currentName = st.current_name || "";
+      D.isInClass = st.state === "in_class";
+      var next = st.next_subject || "";
+      if (st.state === "in_class") D.stateLine = "正在上课 · " + (st.current_name || "") + " " + (st.current_subject || "");
+      else if (st.state === "before_class") D.stateLine = "上课前 · 下一节 " + next;
+      else if (st.state === "between_class") D.stateLine = "课间 · 下一节 " + next;
+      else if (st.state === "after_school") D.stateLine = "已放学";
+      else if (st.state === "weekend") D.stateLine = "周末";
+      else if (st.state === "disabled") D.stateLine = "暂停提醒 · " + (st.disabled_note || "");
+    }
+
+    D.periods = parsePeriods(root.periods, D.periods);
+    D.extraSlots = parsePeriods(root.extra_slots, D.extraSlots);
+
+    var cells = [];
+    ["schedule", "extra_schedule"].forEach(function (key) {
+      (Array.isArray(root[key]) ? root[key] : []).forEach(function (o) {
+        if (!o) return;
+        cells.push({
+          dayIndex: num(o.day_index, 0),
+          periodId: num(o.period_id, 0),
+          subject: o.subject || "",
+          classroom: o.classroom || ""
+        });
+      });
+    });
+    D.schedule = cells;
+
+    if (Array.isArray(root.students)) {
+      D.students = root.students.map(function (o) {
+        return { sid: o.sid || "", name: o.name || "", group: o.group || "", total: num(o.total, 0) };
+      });
+    }
+
+    if (Array.isArray(root.groups)) {
+      D.groupScores = root.groups.map(function (o) {
+        var records = (Array.isArray(o.records) ? o.records : []).map(function (r) {
+          return { time: r.time || "", reason: r.reason || "", delta: num(r.delta, 0), member: r.member || "" };
+        });
+        return { name: o.name || "", leader: o.leader || "", total: num(o.total, 0), records: records };
+      }).sort(function (a, b) { return b.total - a.total; });
+    }
+
+    if (root.hygiene && typeof root.hygiene === "object") {
+      var hy = root.hygiene;
+      D.hygieneTotalRecords = num(hy.total_records, 0);
+      D.hygieneTotalDeduct = num(hy.total_deduct, 0);
+      D.hygieneByGroup = parsePairs(hy.by_group);
+      D.hygieneByReason = parsePairs(hy.by_reason);
+      D.hygieneRecords = (Array.isArray(hy.records) ? hy.records : []).map(function (o) {
+        return {
+          group: o.group || "", member: o.member || "", reason: o.reason || "",
+          score: num(o.score, 0), time: o.time || "", date: o.date || "", by: o.by || ""
+        };
+      });
+    }
+
+    handleApprovals(root.approvals);
+    scheduleRender();
+  }
+
+  function parsePeriods(arr, fallback) {
+    if (!Array.isArray(arr) || !arr.length) return fallback;
+    var list = arr.map(function (o) {
+      return { id: num(o.id, 0), name: o.name || "", start: o.start || "", end: o.end || "" };
+    });
+    return list.length ? list : fallback;
+  }
+
+  function parsePairs(arr) {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function (pair) {
+      if (!Array.isArray(pair)) return null;
+      return [String(pair[0] || ""), num(pair[1], 0)];
+    }).filter(Boolean);
+  }
+
+  function num(value, fallback) {
+    var n = Number(value);
+    return isFinite(n) ? n : fallback;
+  }
+
+  // ---------------- 渲染 ----------------
+  var renderTimer = null;
+  function scheduleRender() {
+    if (renderTimer) clearTimeout(renderTimer);
+    renderTimer = setTimeout(render, 150);
+  }
+
+  function render() {
+    document.getElementById("classLabel").textContent = "· " + D.className;
+    document.getElementById("pageSchedule").innerHTML = scheduleHTML();
+    document.getElementById("pageScore").innerHTML = scoreHTML();
+    document.getElementById("pageHygiene").innerHTML = hygieneHTML();
+  }
+
+  function scheduleHTML() {
+    var html = '<div class="card">' +
+      "<h2>本周课程表</h2>" +
+      '<div class="state-line">' + esc(D.stateLine) + "</div>" +
+      '<div class="sub-line">共 5 天 · 每天 ' + D.periods.length + " 节正课" +
+      (D.extraSlots.length ? " + " + D.extraSlots.map(function (s) { return s.name; }).join(" + ") : "") +
+      "</div></div>";
+
+    html += '<div class="gridwrap"><table class="grid"><thead><tr><th class="lbl">节次</th>';
+    DAYS.forEach(function (day) { html += '<th class="day">' + day + "</th>"; });
+    html += "</tr></thead><tbody>";
+
+    D.periods.forEach(function (p) {
+      html += '<tr><th class="lbl"><b>' + esc(p.name) + "</b><span>" + esc(p.start) + "-" + esc(p.end) + "</span></th>";
+      for (var day = 0; day < 5; day += 1) {
+        var cell = findCell(day, p.id);
+        var isNow = D.isInClass && D.currentDayIndex === day && D.currentPeriodId === p.id;
+        html += cellHTML(cell ? cell.subject : "", cell ? cell.classroom : "", isNow, false);
+      }
+      html += "</tr>";
+    });
+
+    D.extraSlots.forEach(function (slot) {
+      html += '<tr><th class="lbl"><b>' + esc(slot.name) + "</b><span>" + esc(slot.start) + "-" + esc(slot.end) + "</span></th>";
+      for (var day = 0; day < 5; day += 1) {
+        var cell = findCell(day, slot.id);
+        var subject = cell ? cell.subject : "";
+        if (!subject) {
+          subject = slot.name === "午间小练" ? (day === 2 ? "英语小练" : "数学小练") : slot.name;
+        } else if (slot.name === "午间小练" && subject.indexOf("小练") < 0) {
+          subject += "小练";
+        }
+        var isNow = D.isInClass && D.currentName === slot.name;
+        html += cellHTML(subject, "", isNow, true);
+      }
+      html += "</tr>";
+    });
+    html += "</tbody></table></div>";
+
+    html += '<div class="card"><div class="legend">' +
+      legendRow("#E3F2FD", "正课（语文 / 数学 / 英语 …）") +
+      legendRow("#E8F5E9", "体育课 / 信息课 / 音乐 / 美术") +
+      legendRow("#FFF3E0", "午间小练 / 晚辅（非正课）") +
+      "</div></div>";
+    return html;
+  }
+
+  function findCell(day, periodId) {
+    for (var i = 0; i < D.schedule.length; i += 1) {
+      if (D.schedule[i].dayIndex === day && D.schedule[i].periodId === periodId) return D.schedule[i];
+    }
+    return null;
+  }
+
+  function cellHTML(subject, classroom, isNow, extra) {
+    var bg = isNow ? "#C8E6C9" : extra ? "#FFF3E0" : (SUBJECT_COLORS[subject] || "#fff");
+    var cls = "course" + (isNow ? " now" : "") + (subject ? "" : " empty");
+    var content = esc(subject || "—");
+    if (classroom) content += "<small>📍 " + esc(classroom) + "</small>";
+    return '<td class="' + cls + '" style="background:' + bg + '">' + content + "</td>";
+  }
+
+  function legendRow(color, text) {
+    return '<div class="lrow"><i style="background:' + color + '"></i><span>' + esc(text) + "</span></div>";
+  }
+
+  function scoreHTML() {
+    var groups = D.groupScores;
+    var pos = 0;
+    var neg = 0;
+    groups.forEach(function (g) {
+      if (g.total > 0) pos += g.total;
+      if (g.total < 0) neg += g.total;
+    });
+    var html = '<div class="card"><h2>小组积分榜</h2><div class="chips">' +
+      chip("参与小组", groups.length + " 组") +
+      chip("累计加分", "+" + pos, "green") +
+      chip("累计扣分", String(neg), "red") +
+      "</div></div>";
+
+    if (!groups.length) {
+      return html + '<div class="card"><div class="empty">等待电脑端数据…<br>请先在电脑端完成手机绑定，同步后这里会自动显示。</div></div>';
+    }
+
+    html += '<div class="card"><h3>📊 小组积分排行</h3>' + barChart(groups.map(function (g) { return [g.name, g.total]; })) + "</div>";
+    var reasons = scoreReasons();
+    if (reasons.length) {
+      html += '<div class="card"><h3>🥧 积分理由分布</h3>' + donut(reasons) + "</div>";
+    }
+    groups.forEach(function (g, index) { html += groupCard(g, index); });
+    return html;
+  }
+
+  function groupCard(g, index) {
+    var medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : String(index + 1) + ".";
+    var addSum = 0;
+    var subSum = 0;
+    g.records.forEach(function (r) {
+      if (r.delta > 0) addSum += r.delta;
+      if (r.delta < 0) subSum += r.delta;
+    });
+    var html = '<div class="card">' +
+      '<div class="rank-row"><span class="medal">' + medal + "</span>" +
+      '<span class="gname">' + esc(g.name) + "</span>" +
+      '<span class="leader">组长：' + esc(g.leader) + "</span>" +
+      '<span class="total ' + (g.total >= 0 ? "pos" : "neg") + '">' + (g.total >= 0 ? "+" : "") + g.total + "</span></div>" +
+      '<div style="margin-top:7px"><span class="tag pos">加分 +' + addSum + '</span>' +
+      '<span class="tag neg">扣分 ' + subSum + "</span>" +
+      '<span class="hint">共 ' + g.records.length + " 条记录</span></div>" +
+      '<div class="divider"></div>';
+
+    g.records.slice(0, 4).forEach(function (r) {
+      var positive = r.delta >= 0;
+      html += '<div class="rec"><span class="t">' + esc(r.time) + "</span>" +
+        '<span class="r">' + esc(r.reason) + "</span>" +
+        '<span class="d ' + (positive ? "pos" : "neg") + '">' + (positive ? "+" : "") + r.delta + "</span></div>";
+    });
+    if (g.records.length > 4) {
+      html += '<div class="more">… 还有 ' + (g.records.length - 4) + " 条记录</div>";
+    }
+    return html + "</div>";
+  }
+
+  function scoreReasons() {
+    var map = new Map();
+    D.groupScores.forEach(function (g) {
+      g.records.forEach(function (r) {
+        map.set(r.reason, (map.get(r.reason) || 0) + 1);
+      });
+    });
+    return Array.from(map.entries()).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 8);
+  }
+
+  function hygieneHTML() {
+    var html = '<div class="card"><h2>🧹 卫生扣分统计</h2>' +
+      '<div style="color:var(--red);font-size:12px;margin-top:4px">共 ' + D.hygieneTotalRecords +
+      " 条记录 · 累计扣分 " + D.hygieneTotalDeduct + " 分</div></div>";
+
+    var byGroup = D.hygieneByGroup.length ? D.hygieneByGroup : fallbackHygiene("group");
+    var byReason = D.hygieneByReason.length ? D.hygieneByReason : fallbackHygiene("reason");
+
+    if (!byGroup.length && !byReason.length) {
+      return html + '<div class="card"><div class="empty">还没有卫生记录<br>电脑端记录扣分后会自动同步到这里。</div></div>';
+    }
+    html += '<div class="card"><h3>📊 小组扣分排行（越多越差）</h3>' + barChart(byGroup) + "</div>";
+    html += '<div class="card"><h3>🥧 扣分理由分布</h3>' + donut(byReason) + "</div>";
+    return html;
+  }
+
+  function fallbackHygiene(kind) {
+    var map = new Map();
+    D.hygieneRecords.forEach(function (r) {
+      var key = kind === "group" ? r.group : r.reason;
+      if (kind === "group") map.set(key, (map.get(key) || 0) + r.score);
+      else map.set(key, (map.get(key) || 0) + 1);
+    });
+    return Array.from(map.entries()).sort(function (a, b) { return Math.abs(b[1]) - Math.abs(a[1]); });
+  }
+
+  function chip(label, value, tone) {
+    return '<div class="chip"><span>' + esc(label) + '</span><b class="' + (tone || "") + '">' + esc(value) + "</b></div>";
+  }
+
+  function barChart(pairs) {
+    if (!pairs.length) return '<div class="empty">暂无数据</div>';
+    var max = 1;
+    pairs.forEach(function (p) { max = Math.max(max, Math.abs(p[1])); });
+    return '<div class="bars">' + pairs.map(function (p) {
+      var value = p[1];
+      var width = Math.max(2, Math.round(Math.abs(value) / max * 100));
+      var color = value >= 0 ? "var(--green)" : "var(--red)";
+      return '<div class="brow">' +
+        '<span class="blabel">' + esc(p[0]) + "</span>" +
+        '<div class="btrack"><i style="width:' + width + "%;background:" + color + '"></i></div>' +
+        '<b class="bval" style="color:' + color + '">' + (value >= 0 ? "+" : "") + value + "</b>" +
+        "</div>";
+    }).join("") + "</div>";
+  }
+
+  function donut(pairs) {
+    if (!pairs.length) return '<div class="empty">暂无数据</div>';
+    var total = 0;
+    pairs.forEach(function (p) { total += Math.abs(p[1]); });
+    if (!total) total = 1;
+    var radius = 42;
+    var circumference = 2 * Math.PI * radius;
+    var offset = 0;
+    var segments = "";
+    pairs.forEach(function (p, i) {
+      var fraction = Math.abs(p[1]) / total;
+      segments += '<circle cx="60" cy="60" r="' + radius + '" fill="none" stroke="' + COLORS[i % COLORS.length] +
+        '" stroke-width="18" stroke-dasharray="' + (fraction * circumference).toFixed(2) + " " + circumference.toFixed(2) +
+        '" stroke-dashoffset="' + (-offset * circumference).toFixed(2) + '" transform="rotate(-90 60 60)"></circle>';
+      offset += fraction;
+    });
+    var legend = pairs.map(function (p, i) {
+      return '<div class="lrow"><i style="background:' + COLORS[i % COLORS.length] + '"></i>' +
+        "<span>" + esc(p[0]) + "</span><b>" + p[1] + "</b></div>";
+    }).join("");
+    return '<div class="donut"><svg viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="分布图">' +
+      '<circle cx="60" cy="60" r="42" fill="none" stroke="#EEF1F6" stroke-width="18"></circle>' +
+      segments + "</svg>" +
+      '<div class="legend-list">' + legend + "</div></div>";
+  }
+
+  // ---------------- 状态栏 / 弹层 / 提示 ----------------
+  function setStatus(text, ok) {
+    var el = document.getElementById("status");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle("ok", !!ok);
+  }
+
+  function openModal(html, dismissible, onMount) {
+    var root = document.getElementById("modalRoot");
+    root.innerHTML = '<div class="overlay"><div class="sheet">' + html + "</div></div>";
+    var overlay = root.firstElementChild;
+    if (dismissible !== false) {
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) closeModal();
+      });
+    }
+    var sheet = overlay.querySelector(".sheet");
+    if (onMount) onMount(sheet);
+    return sheet;
+  }
+
+  function closeModal() {
+    document.getElementById("modalRoot").innerHTML = "";
+  }
+
+  var toastTimer = null;
+  function toast(text) {
+    var el = document.getElementById("toast");
+    el.textContent = text;
+    el.classList.add("show");
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.classList.remove("show"); }, 2200);
+  }
+
+  function esc(text) {
+    return String(text == null ? "" : text).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+
+  // ---------------- 设置 / 绑定 ----------------
+  function openSettings() {
+    var pcs = S.pcs;
+    var pcList = pcs.length
+      ? pcs.map(function (pc) {
+          var name = pc.name || String(pc.id).slice(0, 8);
+          var active = pc.id === S.active;
+          return '<button class="pc' + (active ? " active" : "") + '" data-pc="' + esc(pc.id) + '" type="button">' +
+            (active ? "✓ " : "") + esc(name) + "</button>";
+        }).join("")
+      : '<div class="hint">还没有绑定任何电脑</div>';
+
+    var sheet = openModal(
+      "<h3>云端绑定</h3>" +
+      '<p class="hint">在电脑端「设置 → 手机绑定」输入下面的设备 ID 发起绑定，本机会弹出确认。</p>' +
+      '<label class="fld">服务器地址<input id="inBase" type="url" inputmode="url" value="' + esc(baseUrl()) + '"></label>' +
+      '<div class="fld">本机设备 ID<div class="idbox" id="deviceIdText">' + esc(S.deviceId || "正在注册…") + "</div></div>" +
+      '<div class="btnrow">' +
+      '<button class="btn" id="copyId" type="button">复制设备 ID</button>' +
+      '<button class="btn" id="saveBase" type="button">保存地址</button>' +
+      "</div>" +
+      '<div class="pcs"><div class="hint">已绑定电脑（点一下切换）</div>' + pcList + "</div>" +
+      '<div class="btnrow">' +
+      '<button class="btn" id="resetDevice" type="button">重置本机身份</button>' +
+      '<button class="btn danger" id="unbind" type="button">解绑当前电脑</button>' +
+      "</div>" +
+      '<div class="btnrow"><button class="btn primary" id="closeSettings" type="button">关闭</button></div>',
+      true
+    );
+
+    sheet.querySelector("#closeSettings").addEventListener("click", closeModal);
+
+    sheet.querySelector("#saveBase").addEventListener("click", function () {
+      var value = sheet.querySelector("#inBase").value.trim().replace(/\/+$/, "");
+      S.base = value || location.origin;
+      setLs("base", value);
+      S.keyCache = { pub: "", key: null };
+      toast("服务器地址已保存");
+      tick();
+    });
+
+    sheet.querySelector("#copyId").addEventListener("click", function () {
+      if (!S.deviceId) { toast("还没有注册成功，请检查网络"); return; }
+      copyText(S.deviceId).then(function () {
+        toast("已复制，去电脑端粘贴即可");
+      }).catch(function () {
+        toast("复制失败，请长按上方设备 ID 手动复制");
+      });
+    });
+
+    sheet.querySelectorAll("[data-pc]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        S.active = btn.getAttribute("data-pc");
+        setLs("active", S.active);
+        S.keyCache = { pub: "", key: null };
+        closeModal();
+        toast("已切换电脑");
+        tick();
+      });
+    });
+
+    sheet.querySelector("#unbind").addEventListener("click", function () {
+      if (!S.active) { toast("当前没有绑定电脑"); return; }
+      S.pcs = S.pcs.filter(function (p) { return p.id !== S.active; });
+      S.active = "";
+      persistPcs();
+      setLs("active", "");
+      closeModal();
+      toast("已解绑");
+      tick();
+    });
+
+    sheet.querySelector("#resetDevice").addEventListener("click", function () {
+      S.deviceId = "";
+      S.secret = "";
+      S.pcs = [];
+      S.active = "";
+      S.answered.clear();
+      S.answeredBind.clear();
+      S.keyCache = { pub: "", key: null };
+      persistDevice();
+      persistPcs();
+      persistAnswered();
+      setLs("active", "");
+      closeModal();
+      toast("已重置，正在重新注册");
+      tick();
+    });
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var area = document.createElement("textarea");
+        area.value = text;
+        area.setAttribute("readonly", "");
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        var ok = document.execCommand("copy");
+        document.body.removeChild(area);
+        if (ok) resolve();
+        else reject(new Error("copy failed"));
+      } catch (e) { reject(e); }
+    });
+  }
+
+  // ---------------- 导出 ----------------
+  function openExport() {
+    var sheet = openModal(
+      "<h3>导出数据</h3>" +
+      '<p class="hint">导出的 CSV 可直接用 Excel / 号码表打开。当前浏览器会保存到「下载」目录。</p>' +
+      '<div class="btnrow">' +
+      '<button class="btn" data-export="schedule" type="button">课程表</button>' +
+      '<button class="btn" data-export="score" type="button">积分</button>' +
+      '<button class="btn" data-export="hygiene" type="button">卫生</button>' +
+      "</div>" +
+      '<div class="btnrow"><button class="btn primary" id="closeExport" type="button">取消</button></div>',
+      true
+    );
+    sheet.querySelector("#closeExport").addEventListener("click", closeModal);
+    sheet.querySelectorAll("[data-export]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        exportData(btn.getAttribute("data-export"));
+        closeModal();
+      });
+    });
+  }
+
+  function exportData(kind) {
+    var rows = [];
+    var name = "";
+    if (kind === "schedule") {
+      name = "课程表.csv";
+      rows.push(["星期", "节次", "时间", "科目", "教室"]);
+      D.periods.concat(D.extraSlots).forEach(function (p) {
+        for (var day = 0; day < 5; day += 1) {
+          var cell = findCell(day, p.id);
+          if (!cell || !cell.subject) continue;
+          rows.push([DAYS[day], p.name, p.start + "-" + p.end, cell.subject, cell.classroom]);
+        }
+      });
+    } else if (kind === "score") {
+      name = "积分记录.csv";
+      rows.push(["小组", "组长", "总分", "时间", "成员", "理由", "分值"]);
+      D.groupScores.forEach(function (g) {
+        if (!g.records.length) {
+          rows.push([g.name, g.leader, g.total, "", "", "", ""]);
+          return;
+        }
+        g.records.forEach(function (r) {
+          rows.push([g.name, g.leader, g.total, r.time, r.member, r.reason, r.delta]);
+        });
+      });
+    } else {
+      name = "卫生记录.csv";
+      rows.push(["小组", "成员", "理由", "扣分", "时间", "记录人", "日期"]);
+      D.hygieneRecords.forEach(function (r) {
+        rows.push([r.group, r.member, r.reason, r.score, r.time, r.by, r.date]);
+      });
+    }
+    if (rows.length <= 1) { toast("当前没有可导出的数据"); return; }
+    downloadCsv(name, rows);
+    toast("已导出 " + name);
+  }
+
+  function downloadCsv(name, rows) {
+    var text = "\ufeff" + rows.map(function (row) {
+      return row.map(csvCell).join(",");
+    }).join("\r\n");
+    var blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+      link.remove();
+    }, 800);
+  }
+
+  function csvCell(value) {
+    var text = String(value == null ? "" : value);
+    return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }
+
+  // ---------------- 事件绑定 ----------------
+  document.querySelectorAll(".tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var index = Number(btn.getAttribute("data-tab"));
+      document.querySelectorAll(".tab").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      ["pageSchedule", "pageScore", "pageHygiene"].forEach(function (id, i) {
+        document.getElementById(id).classList.toggle("active", i === index);
+      });
+      window.scrollTo({ top: 0 });
+    });
+  });
+
+  document.getElementById("settingsBtn").addEventListener("click", openSettings);
+  document.getElementById("status").addEventListener("click", openSettings);
+  document.getElementById("exportBtn").addEventListener("click", openExport);
+
+  // ---------------- 启动 ----------------
+  render();
+  tick();
+  setInterval(function () {
+    if (document.hidden) return;
+    tick();
+  }, 4000);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) tick();
+  });
+})();
+</script>
+</body>
+</html>
