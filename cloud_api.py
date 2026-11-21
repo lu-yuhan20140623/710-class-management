@@ -41,7 +41,7 @@ TICK = 2.0
 ACTIONS_POLL_GAP = 4.0
 PHONES_REFRESH_GAP = 10.0
 PUBLISH_MIN_GAP = 10.0
-RELAY_FALLBACK_AFTER = 60.0
+RELAY_FALLBACK_AFTER = 20.0
 
 UA = f"ClassSchedulePC/{VERSION or '2.2.2'}"
 
@@ -54,7 +54,11 @@ class ApiUnreachable(Exception):
 
 
 class ApiError(Exception):
-    """后端明确返回了错误。"""
+    """后端明确返回了错误（code 为 HTTP 状态码，0 表示响应无法解析）。"""
+
+    def __init__(self, message, code: int = 0):
+        super().__init__(message)
+        self.code = code
 
 
 # ===================== 配置 =====================
@@ -137,7 +141,7 @@ def _call(method: str, base: str, path: str, payload=None,
             body = json.loads(e.read().decode("utf-8") or "{}")
         except Exception:
             body = {}
-        raise ApiError(body.get("error") or f"HTTP {e.code}")
+        raise ApiError(body.get("error") or f"HTTP {e.code}", e.code)
     except (urllib.error.URLError, ssl.SSLError, TimeoutError, OSError) as e:
         raise ApiUnreachable(f"{type(e).__name__}: {e}")
     except ValueError as e:
@@ -190,6 +194,7 @@ class CloudApiService:
         self._last_phones = 0.0
         self._unreachable_since = 0.0
         self._relay_running = False
+        self._net = False
         self._status = {
             "enabled": False, "reachable": False, "paired": False,
             "device_id": "", "base": "", "phones": 0,
@@ -232,43 +237,75 @@ class CloudApiService:
 
             try:
                 self._sync(cfg)
+                if not self._net:
+                    # 本轮没向后端发请求（轮询间隔未到）：沿用上一次的判定，
+                    # 但兜底计时仍在走，到点就拉起中继
+                    self._maybe_start_relay()
+                    self._stop.wait(TICK)
+                    continue
                 if self._unreachable_since:
                     self.log("云同步：官网后端已恢复")
                 self._unreachable_since = 0.0
-                self._set_status(enabled=True, reachable=True, mode="api",
-                                 base=cfg["base"], device_id=cfg["device_id"])
-                if self._relay_running:
+                # 官网后端没有绑定手机（例如手机只配了 Gitee 通道）时，中继必须继续跑，
+                # 否则手机端会一直收不到数据，界面却只显示官网后端在线
+                relay_cfg = cloud_relay.config()
+                keep_relay = (not self._phones) and relay_cfg["enabled"] \
+                    and bool(relay_cfg["token"])
+                if self._relay_running and not keep_relay:
                     cloud_relay.stop()
                     self._relay_running = False
                     self.log("云同步：已切回官网后端，Gitee 中继已停用")
-            except ApiUnreachable as e:
-                now = time.time()
-                if not self._unreachable_since:
-                    self._unreachable_since = now
-                    self.log(f"云同步：官网后端不可达（{e}）")
-                self._set_status(enabled=True, reachable=False,
-                                 last_error=str(e), base=cfg["base"])
-                if (not self._relay_running
-                        and now - self._unreachable_since >= RELAY_FALLBACK_AFTER):
-                    self.log("云同步：改用 Gitee 中继兜底")
+                elif not self._relay_running and keep_relay:
+                    self.log("云同步：官网后端暂无绑定手机，保留 Gitee 中继给已配对设备")
                     cloud_relay.start(self.log)
                     self._relay_running = True
-                    self._set_status(mode="gitee")
+                self._set_status(enabled=True, reachable=True,
+                                 mode="dual" if self._relay_running else "api",
+                                 base=cfg["base"], device_id=cfg["device_id"])
+            except ApiUnreachable as e:
+                self._fallback_to_relay(cfg, str(e))
             except ApiError as e:
-                if "未授权" in str(e):
+                if "未授权" in str(e) or e.code == 401:
                     # 后端不认识本机（清库/换站点），重新注册一次
                     forget_binding()
                     self.log("云同步：设备凭据失效，已重新注册")
-                self._set_status(enabled=True, reachable=True,
-                                 last_error=str(e), base=cfg["base"])
+                # 5xx / 响应异常说明后端本身有问题，和“不可达”一样走 Gitee 兜底，
+                # 否则手机端会一直收不到数据，界面却只显示官网报错
+                if e.code >= 500 or e.code == 0:
+                    self._fallback_to_relay(cfg, str(e))
+                else:
+                    self._set_status(enabled=True, reachable=True,
+                                     last_error=str(e), base=cfg["base"])
             except Exception as e:                   # pragma: no cover
                 self._set_status(last_error=f"{type(e).__name__}: {e}",
                                  base=cfg["base"])
             self._stop.wait(TICK)
 
+    def _fallback_to_relay(self, cfg: dict, err_text: str):
+        """官网后端不可用：稳住状态并拉起 Gitee 中继兜底。"""
+        if not self._unreachable_since:
+            self._unreachable_since = time.time()
+            self.log(f"云同步：官网后端不可用（{err_text}）")
+        self._set_status(enabled=True, reachable=False,
+                         last_error=err_text, base=cfg["base"])
+        self._maybe_start_relay()
+
+    def _maybe_start_relay(self):
+        """后端持续不可用超过阈值后，拉起 Gitee 中继（只拉一次）。"""
+        if self._relay_running or not self._unreachable_since:
+            return
+        if time.time() - self._unreachable_since < RELAY_FALLBACK_AFTER:
+            return
+        self.log("云同步：改用 Gitee 中继兜底")
+        cloud_relay.start(self.log)
+        self._relay_running = True
+        self._set_status(mode="gitee")
+
     def _sync(self, cfg: dict):
         base = cfg["base"]
+        self._net = False
         if not (cfg["device_id"] and cfg["secret"]):
+            self._net = True
             data = _call("POST", base, "/api/register",
                          {"kind": "pc", "name": cfg["name"]})
             save_config(device_id=data["deviceId"], secret=data["secret"])
@@ -286,6 +323,7 @@ class CloudApiService:
         # 1) 已绑定手机列表：决定给谁加密上传
         if now - self._last_phones >= PHONES_REFRESH_GAP:
             self._last_phones = now
+            self._net = True
             data = _call("GET", base, f'/api/pc/{cfg["device_id"]}/phones',
                          device=device)
             phones = {}
@@ -318,6 +356,7 @@ class CloudApiService:
                 if not urgent and self._publish_digest.get(phone_id) == digest:
                     continue
                 cipher = encrypt_text(key, text)
+                self._net = True
                 _call("PUT", base,
                       f'/api/pc/{cfg["device_id"]}/snapshot/{phone_id}',
                       {"cipher": cipher, "version": VERSION}, device=device)
@@ -331,6 +370,7 @@ class CloudApiService:
         # 3) 手机端的确认结果
         if now - self._last_actions >= ACTIONS_POLL_GAP:
             self._last_actions = now
+            self._net = True
             data = _call("GET", base, f'/api/pc/{cfg["device_id"]}/actions',
                          device=device)
             applied = 0

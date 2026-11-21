@@ -820,12 +820,22 @@ class SettingsDialog:
             elif dev_label.cget("text") == "尚未注册":
                 dev_label.config(text=now_cfg["device_id"])
             if st.get("reachable") and not st.get("last_error"):
-                mode = "Gitee 中继兜底" if st.get("mode") == "gitee" else "官网后端在线"
-                text, fg = f"状态：{mode} · 已绑定 {st.get('phones', 0)} 台手机", FG_OK
+                if st.get("mode") == "dual":
+                    text, fg = (f"状态：官网后端在线 · Gitee 中继同时运行 · "
+                                f"已绑定 {st.get('phones', 0)} 台手机", FG_OK)
+                else:
+                    text, fg = (f"状态：官网后端在线 · "
+                                f"已绑定 {st.get('phones', 0)} 台手机", FG_OK)
+            elif st.get("mode") == "gitee":
+                from cloud_relay import status as relay_status
+                relay_st = relay_status()
+                who = "已与手机配对" if relay_st.get("paired") else "等待手机端接入"
+                text, fg = (f"状态：官网后端不可用，Gitee 中继兜底中（{who}）\n"
+                            f"{st.get('last_error', '')}", FG_WARN)
             elif st.get("reachable"):
                 text, fg = f'状态：后端报错 · {st["last_error"]}', FG_DANGER
             elif st.get("last_error"):
-                text, fg = f'状态：官网后端不可达 · {st["last_error"]}\n已自动改用 Gitee 中继', FG_WARN
+                text, fg = f'状态：官网后端不可达 · {st["last_error"]}', FG_WARN
             else:
                 text, fg = "状态：等待后台服务启动…", FG_DIM
             status_label.config(text=text, fg=fg)
