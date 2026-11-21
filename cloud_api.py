@@ -1,4 +1,4 @@
-"""官网后端同步：电脑与手机通过 classmanagement.de5.net 交换加密数据。
+"""官网后端同步：电脑与手机通过 710-class-management.pages.dev 交换加密数据。
 
 链路：
     电脑 --(AES-GCM 加密快照)--> Netlify Functions + Blobs --(手机每 8 秒拉取)--> 手机
