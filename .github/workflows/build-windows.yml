@@ -1,0 +1,91 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号，例如 2.2.4"
+        required: true
+        default: "2.2.4"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: 拉取桌面端源码（Gitee）
+        shell: pwsh
+        run: git clone --depth 1 https://gitee.com/lu-yuhan20140623/710.git src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安装依赖
+        shell: pwsh
+        run: |
+          cd src
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow openpyxl cryptography
+
+      - name: 校验版本号
+        shell: pwsh
+        run: |
+          cd src
+          $actual = python -c "from version import VERSION; print(VERSION)"
+          if ($actual -ne "${{ inputs.version }}") {
+            throw "源码版本 $actual 与输入版本 ${{ inputs.version }} 不一致"
+          }
+          Write-Host "版本：$actual"
+
+      - name: PyInstaller 打包
+        shell: pwsh
+        run: |
+          cd src
+          python build_exe.py --clean
+
+      - name: 编译安装包
+        shell: pwsh
+        run: |
+          cd src
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          (Get-Content setup.iss -Raw) -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"${{ inputs.version }}`"" | Set-Content setup.iss -Encoding UTF8
+          & $iscc setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
+
+      - name: 计算校验值
+        shell: pwsh
+        run: |
+          $exe = "src\installer\ClassSchedule_Setup_${{ inputs.version }}.exe"
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item $exe).Length
+          Write-Host "sha256=$hash"
+          Write-Host "size=$size"
+          "SHA256: ``$hash`` ($size bytes)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding UTF8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClassSchedule_Setup_${{ inputs.version }}
+          path: src/installer/ClassSchedule_Setup_*.exe
+          retention-days: 7
+
+      - name: 发布 GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v${{ inputs.version }}"
+          $exe = "src/installer/ClassSchedule_Setup_${{ inputs.version }}.exe"
+          $notes = "## 更新内容`n`n- 修复：单击悬浮球打开快捷面板后，点击其他窗口（失去焦点）面板不会自动关闭。`n`n### 安装`n`n下载 ``ClassSchedule_Setup_${{ inputs.version }}.exe`` 覆盖安装即可，用户数据与积分记录不受影响。"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $exe --clobber
+          } else {
+            gh release create $tag $exe --title $tag --notes $notes
+          }
