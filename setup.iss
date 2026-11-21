@@ -56,9 +56,9 @@ Source: "dist\app\*.py";                DestDir: "{app}\app"; Flags: ignoreversi
 Source: "dist\plugins\*";               DestDir: "{app}\plugins"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dist\version.json";            DestDir: "{app}"; Flags: ignoreversion
 ; 默认名单：仅在目标文件不存在时写入，升级/重装不会覆盖真实积分
-Source: "dist\class_data.txt";          DestDir: "{app}"; Flags: onlyifdoesntexist
-Source: "dist\student_data.txt";        DestDir: "{app}"; Flags: onlyifdoesntexist
-Source: "dist\group_data.txt";          DestDir: "{app}"; Flags: onlyifdoesntexist
+Source: "dist\class_data.txt";          DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "dist\student_data.txt";        DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "dist\group_data.txt";          DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 
 [Icons]
 ; 开始菜单 → 主程序
