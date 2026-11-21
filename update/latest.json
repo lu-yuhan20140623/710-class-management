@@ -3,11 +3,15 @@
   "published_at": "2026-11-21",
   "previous_version": "2.2.3",
   "exe_changed": true,
-  "notes": "修复桌面悬浮球快捷面板失去焦点后不自动关闭的问题。",
+  "notes": "修复桌面悬浮球快捷面板失去焦点后不自动关闭；新增按小组打分（小组专项分，统计单列一类）；主界面可按学号/积分升降序排序，选组支持多选且不重复勾选；修复奖励动画重叠、文字互压、单一理由饼图不绘制、打分窗口按钮被裁切；云同步后端异常自动切 Gitee 中继，仅用 Gitee 通道时保持中继常驻。",
   "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.4",
+  "renew": {
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.4/renew_2.2.3_to_2.2.4.zip",
+    "sha256": "c3f8fd3fb2a2ae7164ac8fb90b99c746ba6a2ea5d3713139be9391e8f7ccbb5f"
+  },
   "setup": {
     "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.4/ClassSchedule_Setup_2.2.4.exe",
     "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.2.4/ClassSchedule_Setup_2.2.4.exe",
-    "sha256": "f2bc53f1f16849d77cf32f0b03181c281e1d2527f54582a8d2f414e0ea37669c"
+    "sha256": "035564e43ab157cf6ff73290160f2a6bbf19b2db6b93d2737784326fcadf998b"
   }
 }
