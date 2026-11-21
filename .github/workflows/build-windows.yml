@@ -15,6 +15,9 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - name: 拉取桌面端源码（Gitee）
         shell: pwsh
@@ -55,7 +58,7 @@ jobs:
           if (!(Test-Path $iscc)) {
             choco install innosetup -y --no-progress
           }
-          (Get-Content setup.iss -Raw) -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"${{ inputs.version }}`"" | Set-Content setup.iss -Encoding UTF8
+          (Get-Content setup.iss -Raw) -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"${{ inputs.version }}`"" | Set-Content setup.iss -Encoding utf8BOM
           & $iscc setup.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup 编译失败" }
 
