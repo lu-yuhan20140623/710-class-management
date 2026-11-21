@@ -63,10 +63,14 @@ class ScoreScoringMixin:
                            activeforeground=FG_ACCENT, bd=0, highlightthickness=0,
                            command=lambda: rebuild()).pack(side=tk.LEFT, padx=4)
 
+        # 底部区域先占位：窗口高度不够时由上方勾选列表收缩，按钮不会被挤出窗口
+        bottom = tk.Frame(win, bg=BG_MAIN)
+        bottom.pack(side=tk.BOTTOM, fill=tk.X)
+
         pick_body = tk.Frame(win, bg=BG_PANEL,
                              highlightbackground=BG_CELL, highlightthickness=1)
         pick_body.pack(fill=tk.BOTH, expand=True, padx=22, pady=(8, 6))
-        cv = tk.Canvas(pick_body, bg=BG_PANEL, height=150, highlightthickness=0, bd=0)
+        cv = tk.Canvas(pick_body, bg=BG_PANEL, height=120, highlightthickness=0, bd=0)
         sb = ttk.Scrollbar(pick_body, orient="vertical", command=cv.yview)
         cv.configure(yscrollcommand=sb.set)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
@@ -128,7 +132,7 @@ class ScoreScoringMixin:
 
         rebuild()
 
-        form = tk.Frame(win, bg=BG_MAIN)
+        form = tk.Frame(bottom, bg=BG_MAIN)
         form.pack(padx=24, pady=4, fill=tk.X)
         form.columnconfigure(1, weight=1)
 
@@ -160,12 +164,12 @@ class ScoreScoringMixin:
         score_entry = self._entry(form, width=10)
         score_entry.grid(row=2, column=1, sticky="w", pady=5)
 
-        tk.Label(win, text="分值填正数加分、负数扣分（如 3 或 -2）；理由可直接输入新内容，会保存为预设",
+        tk.Label(bottom, text="分值填正数加分、负数扣分（如 3 或 -2）；理由可直接输入新内容，会保存为预设",
                  font=(FONT, 8), bg=BG_MAIN, fg=FG_DIM,
                  wraplength=480, justify=tk.CENTER).pack()
         score_entry.focus_set()
 
-        err = tk.Label(win, text="", font=(FONT, 9), bg=BG_MAIN, fg=FG_DANGER)
+        err = tk.Label(bottom, text="", font=(FONT, 9), bg=BG_MAIN, fg=FG_DANGER)
         err.pack()
 
         def submit():
@@ -233,11 +237,16 @@ class ScoreScoringMixin:
             target = "个小组" if group_mode else "名学生"
             self._set_status(f"已为 {count} {target}{mode} {score} 分 · {reason}", FG_OK)
 
-        row = tk.Frame(win, bg=BG_MAIN)
+        row = tk.Frame(bottom, bg=BG_MAIN)
         row.pack(pady=(6, 14))
         self._btn(row, "提交", submit, primary=True).pack(side=tk.LEFT, padx=6)
         self._btn(row, "取消", win.destroy).pack(side=tk.LEFT, padx=6)
         win.bind("<Return>", lambda e: submit())
+        # 按实际内容撑高：高 DPI 下字体变大也不会把底部按钮挤出窗口
+        win.update_idletasks()
+        cur_h = win.winfo_height()
+        win.geometry(f"{max(560, win.winfo_reqwidth())}x"
+                     f"{max(cur_h, win.winfo_reqheight())}")
 
     def _revoke_record(self):
         if not self._can_write():
