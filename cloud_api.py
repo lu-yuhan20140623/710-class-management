@@ -391,8 +391,11 @@ def status() -> dict:
 
 
 def forget_binding():
-    """解绑本机设备：清掉设备 ID / 密钥，下次启动重新注册。"""
-    save_config(device_id="", secret="", priv="")
+    """重新注册设备：只清设备凭据，保留密钥对。
+
+    以前连 priv 一起清，导致每次重新注册都换一套密钥、手机端全部失配。
+    """
+    save_config(device_id="", secret="")
 
 
 # ===================== 设置界面用 =====================

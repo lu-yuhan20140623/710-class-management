@@ -110,6 +110,8 @@ def config() -> dict:
         "repo": str(raw.get("repo") or DEFAULT_REPO).strip(),
         "branch": str(raw.get("branch") or DEFAULT_BRANCH).strip(),
         "token": str(raw.get("token") or _default_token()).strip(),
+        # 持久化的 DH 私钥：上次运行生成的，重启后沿用
+        "priv": str(raw.get("priv") or "").strip(),
     }
 
 
@@ -283,13 +285,28 @@ def _digest(snap: dict) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _persistent_priv() -> int:
+    """中继用的 DH 私钥必须持久化：每次重启都换密钥会让手机端全部失配。"""
+    raw = str(config().get("priv") or "").strip()
+    if raw:
+        try:
+            value = int(raw, 16)
+            if value > 1:
+                return value
+        except ValueError:
+            pass
+    value = secrets.randbits(256) | 1
+    save_config(priv=format(value, "x"))
+    return value
+
+
 # ===================== 中继服务 =====================
 class RelayService:
     def __init__(self, log=print):
         self.log = log
         self._thread = None
         self._stop = threading.Event()
-        self._priv = secrets.randbits(256) | 1
+        self._priv = _persistent_priv()
         self._key = None
         self._peer_pub = None
         self._pc_pub_uploaded_for = None

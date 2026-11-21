@@ -1,13 +1,13 @@
 {
-  "version": "2.2.2",
+  "version": "2.2.3",
   "published_at": "2026-11-21",
-  "previous_version": "2.2.1",
+  "previous_version": "2.2.2",
   "exe_changed": true,
-  "notes": "云同步改走官网自建后端，不再受 Gitee 接口频率限制（Gitee 中继保留为备用）；手机绑定改为电脑端输入手机设备 ID、手机端确认，一台电脑只保留一台确认设备，换绑需在电脑端输入教师密钥。",
-  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.2",
+  "notes": "修复每次更新后云同步密钥变化的问题：中继密钥持久化保存，重启与更新都不再重新生成；重新注册设备时保留密钥对。",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.3",
   "setup": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.2/ClassSchedule_Setup_2.2.2.exe",
-    "fallback_url": "https://classmanagement.de5.net/downloads/ClassSchedule_Setup_2.2.2.exe",
-    "sha256": "b67555872078683c5e9a2b339be249c146f910d13468fb9918a57a61b3bd5582"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.3/ClassSchedule_Setup_2.2.3.exe",
+    "fallback_url": "https://classmanagement.de5.net/downloads/ClassSchedule_Setup_2.2.3.exe",
+    "sha256": "b9dd3805adae0af99c800fb24f863616b8c22739d10fa798ffd75c0480a03c3a"
   }
 }
