@@ -130,6 +130,12 @@ def student_records(info: dict) -> list:
     return info.get("records", []) if isinstance(info, dict) else []
 
 
+def sid_key(sid) -> tuple:
+    """学号排序键："2" 排在 "10" 前面，非纯数字的按字符串排。"""
+    text = str(sid)
+    return (0, int(text), "") if text.isdigit() else (1, 0, text)
+
+
 def group_legacy_total(group: dict) -> int:
     """旧版按小组保存的记录（迁移后一般已清空，留作兜底）。"""
     return sum(record_delta(r) for r in group.get("record", []) if isinstance(r, dict))

@@ -12,7 +12,36 @@ from ui import (
 )
 
 
+SORT_MODES = ("sid_asc", "sid_desc", "score_desc", "score_asc")
+SORT_LABELS = {
+    "sid_asc": "学号 ↑", "sid_desc": "学号 ↓",
+    "score_desc": "积分 ↓", "score_asc": "积分 ↑",
+}
+
+
 class ScoreCardsMixin:
+    # 主界面排序：默认学号升序，可切积分
+    SORT_MODES = SORT_MODES
+
+    def _on_sort_change(self, _event=None):
+        label = self.sort_box.get()
+        for mode, text in SORT_LABELS.items():
+            if text == label:
+                self.sort_mode = mode
+                break
+        self._render_cards()
+
+    def _sid_key(self, sid):
+        return store.sid_key(sid)
+
+    def _sorted_sids(self, stu):
+        if self.sort_mode.startswith("score"):
+            rows = sorted(stu.items(),
+                          key=lambda kv: (store.student_total(kv[1]), self._sid_key(kv[0])),
+                          reverse=self.sort_mode.endswith("desc"))
+            return [sid for sid, _ in rows]
+        return sorted(stu, key=self._sid_key, reverse=self.sort_mode.endswith("desc"))
+
     def _build(self):
         # 顶部：标题 + 班级切换 + 人数
         top = tk.Frame(self.win, bg=BG_MAIN)
@@ -29,7 +58,16 @@ class ScoreCardsMixin:
 
         self.count_label = tk.Label(top, text="", font=(FONT, 10),
                                     bg=BG_MAIN, fg=FG_DIM)
-        self.count_label.pack(side=tk.LEFT, padx=14)
+        self.count_label.pack(side=tk.LEFT, padx=10)
+
+        tk.Label(top, text="排序", font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM)\
+            .pack(side=tk.LEFT, padx=(0, 4))
+        self.sort_box = ttk.Combobox(top, state="readonly", width=10,
+                                     font=(FONT, 9),
+                                     values=[SORT_LABELS[m] for m in SORT_MODES])
+        self.sort_box.set(SORT_LABELS[self.sort_mode])
+        self.sort_box.pack(side=tk.LEFT)
+        self.sort_box.bind("<<ComboboxSelected>>", self._on_sort_change)
 
         self._new_class_btn = self._btn(top, "+ 新建班级", self._create_class)
         self._new_class_btn.pack(side=tk.RIGHT)
@@ -160,7 +198,9 @@ class ScoreCardsMixin:
             self._render_group_cards()
         else:
             group_map = self._group_map()
-            for sid, info in self.all_students.get(self.current_class, {}).items():
+            stu = self.all_students.get(self.current_class, {})
+            for sid in self._sorted_sids(stu):
+                info = stu[sid]
                 card = tk.Button(self.inner, text=self._card_text(sid, info, group_map.get(sid)),
                                  font=(FONT, 10), bg=CARD_BG, fg=FG_TEXT,
                                  activebackground=BG_CELL_ALT, activeforeground=FG_TEXT,
@@ -235,7 +275,8 @@ class ScoreCardsMixin:
         if not group:
             return
         stu = self.all_students.get(self.current_class, {})
-        members = [s for s in group.get("members", []) if s in stu]
+        members = sorted((s for s in group.get("members", []) if s in stu),
+                         key=store.sid_key)
         leader = group.get("leader", "")
         leader_text = f"{leader} {stu[leader]['name']}" if leader in stu else "未指定"
         total = store.group_total(group, stu)
@@ -291,7 +332,7 @@ class ScoreCardsMixin:
         if not self.readonly:
             self._btn(row, "给小组记分",
                       lambda: (win.destroy(),
-                               self._open_score(target_groups=[gname])),
+                               self._open_score(target_groups=[gname], groups_fixed=True)),
                       primary=True).pack(side=tk.LEFT)
             self._btn(row, "为本组学生打分",
                       lambda: (win.destroy(), self._open_score(target_students=members))

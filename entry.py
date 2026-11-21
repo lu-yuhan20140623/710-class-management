@@ -57,10 +57,12 @@ def students() -> dict:
 
 
 def _flat_students() -> list[tuple[str, str, str]]:
-    """返回 [(班级, 学号, 姓名)]。"""
+    """返回 [(班级, 学号, 姓名)]，统一按学号升序。"""
+    import score_records
     out = []
     for cls, group in students().items():
-        for sid, info in (group or {}).items():
+        for sid, info in sorted((group or {}).items(),
+                                key=lambda kv: score_records.sid_key(kv[0])):
             out.append((cls, str(sid), str(info.get("name") or sid)))
     return out
 

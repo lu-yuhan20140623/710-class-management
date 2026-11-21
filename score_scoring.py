@@ -10,7 +10,7 @@ from ui import BG_CELL, BG_MAIN, BG_PANEL, FG_ACCENT, FG_DANGER, FG_DIM, FG_OK, 
 
 
 class ScoreScoringMixin:
-    def _open_score(self, target_groups=None, target_students=None):
+    def _open_score(self, target_groups=None, target_students=None, groups_fixed=False):
         if not self._can_write():
             return
         if self._score_win and self._score_win.winfo_exists():
@@ -32,6 +32,7 @@ class ScoreScoringMixin:
                 if not gnames:
                     return
                 preset_groups = gnames
+                groups_fixed = True
                 for gname in gnames:
                     group = groups.get(gname) or {}
                     sids += [s for s in group.get("members", []) if s in stu]
@@ -54,38 +55,48 @@ class ScoreScoringMixin:
         hint = tk.Label(win, text="", font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM)
         hint.pack()
 
-        scope_row = tk.Frame(win, bg=BG_MAIN)
-        scope_row.pack(pady=(6, 2))
-        tk.Label(scope_row, text="记录到", font=(FONT, 10), bg=BG_MAIN,
-                 fg=FG_DIM).pack(side=tk.LEFT, padx=(0, 8))
-        for value, label in (("person", "个人"), ("group", "小组（小组专项分）")):
-            tk.Radiobutton(scope_row, text=label, value=value, variable=scope,
-                           font=(FONT, 10), bg=BG_MAIN, fg=FG_TEXT,
-                           selectcolor=BG_CELL, activebackground=BG_MAIN,
-                           activeforeground=FG_ACCENT, bd=0, highlightthickness=0,
-                           command=lambda: rebuild()).pack(side=tk.LEFT, padx=4)
-
         # 底部区域先占位：窗口高度不够时由上方勾选列表收缩，按钮不会被挤出窗口
         bottom = tk.Frame(win, bg=BG_MAIN)
         bottom.pack(side=tk.BOTTOM, fill=tk.X)
 
-        pick_body = tk.Frame(win, bg=BG_PANEL,
-                             highlightbackground=BG_CELL, highlightthickness=1)
-        pick_body.pack(fill=tk.BOTH, expand=True, padx=22, pady=(8, 6))
-        cv = tk.Canvas(pick_body, bg=BG_PANEL, height=120, highlightthickness=0, bd=0)
-        sb = ttk.Scrollbar(pick_body, orient="vertical", command=cv.yview)
-        cv.configure(yscrollcommand=sb.set)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        cv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        pick_inner = tk.Frame(cv, bg=BG_PANEL)
-        cv.create_window((0, 0), window=pick_inner, anchor="nw")
-        pick_inner.bind("<Configure>",
-                        lambda e: cv.configure(scrollregion=cv.bbox("all")))
-        cv.bind("<MouseWheel>",
-                lambda e: cv.yview_scroll(int(-e.delta / 120), "units"))
-
         vars_ = {}
         group_vars = {}
+        # 已经在“选择打分组”里选过就直接沿用，不再让用户重复勾选
+        fixed = bool(groups_fixed and preset_groups)
+
+        if fixed:
+            hint.config(text="本次打分：" + "、".join(preset_groups) +
+                             f"（已选 {len(preset_groups)} 个小组）")
+            for gname in preset_groups:
+                group_vars[gname] = tk.BooleanVar(value=True)
+        else:
+            scope_row = tk.Frame(win, bg=BG_MAIN)
+            scope_row.pack(pady=(6, 2))
+            tk.Label(scope_row, text="记录到", font=(FONT, 10), bg=BG_MAIN,
+                     fg=FG_DIM).pack(side=tk.LEFT, padx=(0, 8))
+            for value, label in (("person", "个人"), ("group", "小组（小组专项分）")):
+                tk.Radiobutton(scope_row, text=label, value=value, variable=scope,
+                               font=(FONT, 10), bg=BG_MAIN, fg=FG_TEXT,
+                               selectcolor=BG_CELL, activebackground=BG_MAIN,
+                               activeforeground=FG_ACCENT, bd=0,
+                               highlightthickness=0,
+                               command=lambda: rebuild()).pack(side=tk.LEFT, padx=4)
+
+            pick_body = tk.Frame(win, bg=BG_PANEL,
+                                 highlightbackground=BG_CELL, highlightthickness=1)
+            pick_body.pack(fill=tk.BOTH, expand=True, padx=22, pady=(8, 6))
+            cv = tk.Canvas(pick_body, bg=BG_PANEL, height=120,
+                           highlightthickness=0, bd=0)
+            sb = ttk.Scrollbar(pick_body, orient="vertical", command=cv.yview)
+            cv.configure(yscrollcommand=sb.set)
+            sb.pack(side=tk.RIGHT, fill=tk.Y)
+            cv.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            pick_inner = tk.Frame(cv, bg=BG_PANEL)
+            cv.create_window((0, 0), window=pick_inner, anchor="nw")
+            pick_inner.bind("<Configure>",
+                            lambda e: cv.configure(scrollregion=cv.bbox("all")))
+            cv.bind("<MouseWheel>",
+                    lambda e: cv.yview_scroll(int(-e.delta / 120), "units"))
 
         def add_check(container, text, var, checked=True):
             var.set(checked)
@@ -104,6 +115,8 @@ class ScoreScoringMixin:
             var.trace_add("write", lambda *a, f=sync: f())
 
         def rebuild():
+            if fixed:
+                return
             for child in pick_inner.winfo_children():
                 child.destroy()
             vars_.clear()
@@ -132,7 +145,8 @@ class ScoreScoringMixin:
             pick_inner.update_idletasks()
             cv.configure(scrollregion=cv.bbox("all"))
 
-        rebuild()
+        if not fixed:
+            rebuild()
 
         form = tk.Frame(bottom, bg=BG_MAIN)
         form.pack(padx=24, pady=4, fill=tk.X)
@@ -175,7 +189,7 @@ class ScoreScoringMixin:
         err.pack()
 
         def submit():
-            group_mode = scope.get() == "group"
+            group_mode = fixed or scope.get() == "group"
             chosen = [g for g in group_vars if group_vars[g].get()] if group_mode \
                 else [sid for sid in sids if vars_[sid].get()]
             reason = reason_box.get().strip()

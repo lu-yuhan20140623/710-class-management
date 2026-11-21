@@ -181,7 +181,7 @@ class ScoreGroupsMixin:
         lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
 
-        sids = sorted(stu)
+        sids = sorted(stu, key=store.sid_key)
         for sid in sids:
             lb.insert(tk.END, f"{sid}  {stu[sid]['name']}")
         current = set(group.get("members", []))

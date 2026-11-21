@@ -63,6 +63,7 @@ class StudentScoreWindow(
             self._save_all()
 
         self.view_mode = "group"          # 默认按小组展示
+        self.sort_mode = "sid_asc"        # 学生卡片默认按学号升序
         self.selected_ids = set()
         self._cards = {}
         self._group_cards = {}
