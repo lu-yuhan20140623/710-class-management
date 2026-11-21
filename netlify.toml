@@ -1,0 +1,7 @@
+[build]
+  # 静态站点（官网）与云同步 API 同一站点部署
+  publish = "官网"
+  functions = "server/netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"

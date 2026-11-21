@@ -1,0 +1,12 @@
+{
+  "name": "class-schedule",
+  "private": true,
+  "description": "课程表官网 + 云同步后端（Netlify Functions + Blobs）",
+  "scripts": {
+    "server:dev": "node server/dev-server.mjs",
+    "server:test": "node server/test-api.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

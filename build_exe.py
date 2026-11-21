@@ -58,6 +58,7 @@ APP_FILES = [
     "plugin_api.py",
     "lan_server.py",
     "cloud_relay.py",
+    "cloud_api.py",
     "instance_guard.py",
     "roles.py",
     "entry.py",

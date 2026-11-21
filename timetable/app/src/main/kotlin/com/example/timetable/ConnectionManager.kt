@@ -17,6 +17,7 @@ class ConnectionManager(
     private val onSnapshot: (JSONObject) -> Unit,
     private val onStatus: (String, Boolean) -> Unit,
     private val onApproval: (String, String, String) -> Unit,
+    private val onBindRequest: (JSONObject) -> Unit,
 ) {
     companion object {
         const val MODE_NONE = "none"
@@ -53,6 +54,8 @@ class ConnectionManager(
     private var lan: LanClient? = null
     private var watcher: ApprovalWatcher? = null
     private var cloud: CloudClient? = null
+    private var api: ApiClient? = null
+    private var apiFails = 0
     private var lanConnected = false
     private var probeThread: Thread? = null
     private val shownApprovals = HashSet<String>()
@@ -109,18 +112,21 @@ class ConnectionManager(
         if (running) return
         running = true
         val cfg = cloudConfig()
-        if (cfg.configured) startCloud(cfg)
+        // 没绑定电脑时也要连官网：电脑端发起的绑定申请要在收件箱里收到
+        startCloud(cfg)
 
         val target = lanCandidate()
         if (target.isNotBlank()) {
             Thread({
                 if (probe(target) && running) {
                     switchToLan(target)
-                } else if (!cfg.configured && running && mode == MODE_NONE) {
+                } else if (!cfg.configured && ApiStore.activeId(ctx).isBlank() &&
+                    running && mode == MODE_NONE
+                ) {
                     onStatus("局域网连接失败 · 点此设置", false)
                 }
             }, "lan-probe").apply { isDaemon = true; start() }
-        } else if (!cfg.configured) {
+        } else if (!cfg.configured && ApiStore.activeId(ctx).isBlank()) {
             onStatus("未连接 · 点此设置电脑地址或云同步", false)
         }
         startProbeLoop()
@@ -137,6 +143,7 @@ class ConnectionManager(
             lan?.stop(); lan = null
             watcher?.stop(); watcher = null
             cloud?.stop(); cloud = null
+            api?.stop(); api = null
             lanConnected = false
             mode = MODE_NONE
         }
@@ -152,7 +159,9 @@ class ConnectionManager(
             // 下一轮快照会把同一个请求又弹一次
             answered.add(id)
             persistAnswered()
-            cloud?.enqueueDecision(id, approve)
+            val a = api
+            if (a != null) a.enqueueDecision(id, approve)
+            else cloud?.enqueueDecision(id, approve)
         }
     }
 
@@ -181,6 +190,8 @@ class ConnectionManager(
         if (!running) return
         cloud?.stop()
         cloud = null
+        api?.stop()
+        api = null
         lan?.stop()
         watcher?.stop()
         lanConnected = false
@@ -208,15 +219,47 @@ class ConnectionManager(
     // ---------------- 云同步 ----------------
     private fun startCloud(cfg: CloudConfig) {
         synchronized(lock) {
-            cloud?.stop()
-            mode = MODE_CLOUD
-            cloud = CloudClient(
-                cfg = cfg,
-                priv = phonePriv,
-                onSnapshot = { json -> if (mode == MODE_CLOUD) handleSnapshot(json) },
-                onStatus = { text, ok -> if (mode == MODE_CLOUD) onStatus(text, ok) },
-            ).also { it.start() }
+            cloud?.stop(); cloud = null
+            api?.stop(); api = null
+            // 官网后端是主通道；连续失败且配了 Gitee 令牌时再兜底切中继
+            startApiLocked(cfg)
         }
+    }
+
+    /** 官网后端：连续失败约 1 分钟且配了 Gitee 令牌时自动切到中继兜底。 */
+    private fun startApiLocked(cfg: CloudConfig) {
+        mode = MODE_CLOUD
+        apiFails = 0
+        api = ApiClient(
+            ctx,
+            onSnapshot = { json -> if (mode == MODE_CLOUD) handleSnapshot(json) },
+            onStatus = { text, ok ->
+                if (ok) {
+                    apiFails = 0
+                } else {
+                    apiFails++
+                    if (apiFails >= 8 && cfg.configured && running) {
+                        RelayLog.log("官网后端连续失败，改用 Gitee 中继")
+                        synchronized(lock) {
+                            api?.stop(); api = null
+                            if (mode == MODE_CLOUD) startGiteeLocked(cfg)
+                        }
+                    }
+                }
+                if (mode == MODE_CLOUD) onStatus(text, ok)
+            },
+            onBindRequest = { item -> onBindRequest(item) },
+        ).also { it.start() }
+    }
+
+    private fun startGiteeLocked(cfg: CloudConfig) {
+        mode = MODE_CLOUD
+        cloud = CloudClient(
+            cfg = cfg,
+            priv = phonePriv,
+            onSnapshot = { json -> if (mode == MODE_CLOUD) handleSnapshot(json) },
+            onStatus = { text, ok -> if (mode == MODE_CLOUD) onStatus(text, ok) },
+        ).also { it.start() }
     }
 
     @Synchronized
@@ -225,13 +268,8 @@ class ConnectionManager(
         lan?.stop(); lan = null
         watcher?.stop(); watcher = null
         lanConnected = false
-        val cfg = cloudConfig()
-        if (cfg.configured) {
-            startCloud(cfg)
-        } else {
-            mode = MODE_NONE
-            onStatus("已断开 · 点此设置电脑地址或云同步", false)
-        }
+        // 绑定需要官网在线，所以任何时候都回到云同步
+        startCloud(cloudConfig())
     }
 
     private fun startProbeLoop() {

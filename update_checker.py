@@ -213,6 +213,9 @@ def prepare(manifest: dict) -> tuple:
         ok, err = True, ""
     else:
         ok, err = _download(item["url"], dest, item.get("sha256", ""))
+        if not ok and item.get("fallback_url"):
+            # 主通道（Gitee Release）没找到对应版本或下载失败，退回官网自建下载
+            ok, err = _download(item["fallback_url"], dest, item.get("sha256", ""))
     if not ok:
         return False, f"下载{('补丁' if kind == 'renew' else '安装包')}失败：{err}"
     _write_json(pending_path(), {

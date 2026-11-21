@@ -67,6 +67,7 @@ class MainActivity : Activity() {
             onApproval = { id, title, detail ->
                 runOnUiThread { askApproval(id, title, detail) }
             },
+            onBindRequest = { item -> runOnUiThread { askBindRequest(item) } },
         )
     }
 
@@ -181,6 +182,54 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 电脑端发起绑定：手机上点「同意」后才生效，并切换为只订阅这台电脑。 */
+    private fun askBindRequest(item: org.json.JSONObject) {
+        if (isFinishing) return
+        val pcId = item.optString("pcId")
+        val rid = item.optString("requestId")
+        if (pcId.isBlank() || rid.isBlank()) return
+        val pcName = item.optString("pcName").ifBlank { pcId.take(8) }
+        try {
+            AlertDialog.Builder(this)
+                .setTitle("电脑请求绑定")
+                .setMessage("「$pcName」想把本机设为确认设备。\n\n" +
+                        "同意后会取消订阅其他电脑，只同步这一台。")
+                .setPositiveButton("同意") { _, _ -> decideBind(item, true) }
+                .setNegativeButton("拒绝") { _, _ -> decideBind(item, false) }
+                .setCancelable(false)
+                .show()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun decideBind(item: org.json.JSONObject, approve: Boolean) {
+        val rid = item.optString("requestId")
+        Thread({
+            try {
+                val res = ApiClient.decide(this, rid, approve)
+                runOnUiThread {
+                    if (approve && res.optString("status") == "approved") {
+                        ApiStore.upsertPc(this, BoundPc(
+                            res.optString("pcId"),
+                            res.optString("pcName"),
+                            res.optString("pcPub"),
+                        ))
+                        ApiStore.setActive(this, res.optString("pcId"))
+                        manager.restart()
+                        Toast.makeText(this, "已绑定，开始同步", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "已拒绝该电脑的绑定", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "绑定结果上报失败：${e.message}",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }, "api-bind-decide").apply { isDaemon = true; start() }
+    }
+
     private var lastErrorText = ""
 
     private fun updateStatus(text: String, ok: Boolean) {
@@ -234,11 +283,17 @@ class MainActivity : Activity() {
         val eToken = field("Gitee 访问令牌", cfg.token)
         listOf(eLan, eRepo, eBranch, eToken).forEach { layout.addView(it) }
         layout.addView(TextView(this).apply {
-            text = "优先尝试局域网直连，探测 1.2 秒不通就自动走 Gitee 云同步。\n" +
-                    "令牌在 Gitee「设置 → 私人令牌」生成，勾选 projects 权限。"
+            text = "优先尝试局域网直连，探测 1.2 秒不通就自动走云同步。\n" +
+                    "官网云端（推荐）：先点下面「云端绑定」，用电脑端的设备 ID 发起申请，\n" +
+                    "电脑会弹窗确认；Gitee 令牌留空即可，配了则作为后端不可达时的备用通道。"
             setTextColor(Color.parseColor("#707080"))
             textSizeSp(11)
             setPadding(pad, dp2px(8), pad, 0)
+        })
+        layout.addView(Button(this).apply {
+            text = "📱 云端绑定（官网后端）"
+            isAllCaps = false
+            setOnClickListener { showBindingDialog() }
         })
 
         AlertDialog.Builder(this)
@@ -263,6 +318,126 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("取消", null)
             .setNeutralButton("同步日志") { _, _ -> showRelayLog() }
+            .show()
+    }
+
+    /** 云端绑定：显示本机设备 ID，由电脑端输入并发起，本机弹窗确认。 */
+    private fun showBindingDialog() {
+        val pad = dp2px(16)
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, dp2px(8), pad, 0)
+        }
+
+        fun tip(text: String, color: String = "#707080", size: Int = 11) =
+            TextView(this).apply {
+                this.text = text
+                setTextColor(Color.parseColor(color))
+                textSizeSp(size)
+                setPadding(pad, dp2px(6), pad, dp2px(2))
+            }
+
+        val eBase = EditText(this).apply {
+            hint = "服务器地址"
+            setText(ApiStore.base(this@MainActivity))
+            setSingleLine()
+            setTextColor(Color.parseColor("#1A1A2E"))
+            setPadding(pad, dp2px(6), pad, dp2px(6))
+        }
+        val idView = TextView(this).apply {
+            val id = ApiStore.deviceId(this@MainActivity)
+            text = if (id.isBlank()) "正在注册…" else id
+            setTextColor(Color.parseColor("#1A1A2E"))
+            textSizeSp(13)
+            setTextIsSelectable(true)
+            setPadding(pad, dp2px(6), pad, dp2px(6))
+        }
+        val progress = tip("", "#1B5E8C", 12)
+        val pcBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        if (ApiStore.deviceId(this).isBlank()) {
+            // 打开设置时顺手把设备注册上，省得用户等
+            Thread({
+                try {
+                    ApiClient.inbox(this)
+                    runOnUiThread { idView.text = ApiStore.deviceId(this) }
+                } catch (_: Exception) {
+                    runOnUiThread { idView.text = "注册失败，请检查网络后重开设置" }
+                }
+            }, "api-register").apply { isDaemon = true; start() }
+        }
+
+        fun renderPcs() {
+            pcBox.removeAllViews()
+            val pcs = ApiStore.pcs(this)
+            if (pcs.isEmpty()) {
+                pcBox.addView(tip("还没有绑定任何电脑"))
+                return
+            }
+            pcBox.addView(tip("已绑定电脑（点一下切换）"))
+            val active = ApiStore.activeId(this)
+            pcs.forEach { pc ->
+                val label = pc.name.ifBlank { pc.id.take(8) }
+                pcBox.addView(Button(this).apply {
+                    text = if (pc.id == active) "✓ $label" else label
+                    isAllCaps = false
+                    textSizeSp(13)
+                    setOnClickListener {
+                        ApiStore.setActive(this@MainActivity, pc.id)
+                        manager.restart()
+                        renderPcs()
+                        progress.text = "已切换到「$label」"
+                    }
+                })
+            }
+        }
+
+        layout.addView(tip("服务器地址"))
+        layout.addView(eBase)
+        layout.addView(tip("本机设备 ID（在电脑端「设置 → 手机绑定」输入它发起绑定）"))
+        layout.addView(idView)
+        layout.addView(Button(this).apply {
+            text = "复制设备 ID"
+            isAllCaps = false
+            setOnClickListener {
+                val id = ApiStore.deviceId(this@MainActivity)
+                if (id.isBlank()) {
+                    progress.text = "还没有注册成功，请检查网络"
+                    return@setOnClickListener
+                }
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("deviceId", id))
+                progress.text = "已复制，去电脑端粘贴即可"
+            }
+        })
+        layout.addView(Button(this).apply {
+            text = "保存服务器地址"
+            isAllCaps = false
+            setOnClickListener {
+                ApiStore.setBase(
+                    this@MainActivity,
+                    eBase.text.toString().trim().trimEnd('/')
+                        .ifBlank { ApiStore.DEFAULT_BASE })
+                progress.text = "服务器地址已保存"
+                manager.restart()
+            }
+        })
+        layout.addView(progress)
+        layout.addView(pcBox)
+
+        renderPcs()
+        AlertDialog.Builder(this)
+            .setTitle("云端绑定")
+            .setView(ScrollView(this).apply { addView(layout) })
+            .setPositiveButton("关闭", null)
+            .setNeutralButton("解绑当前") { _, _ ->
+                val id = ApiStore.activeId(this)
+                if (id.isNotBlank()) {
+                    ApiStore.removePc(this, id)
+                    manager.restart()
+                    Toast.makeText(this, "已解绑", Toast.LENGTH_SHORT).show()
+                }
+            }
             .show()
     }
 

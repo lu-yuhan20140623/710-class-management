@@ -1,8 +1,9 @@
 """Tkinter 对话框：时间调试、设置、局域网连接、密钥验证。"""
 import threading
+import time
 import tkinter as tk
 from datetime import datetime, timedelta
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 
 import auth
 import autostart
@@ -254,9 +255,10 @@ class SettingsDialog:
         self._tab_override(notebook)
         self._tab_password(notebook)
         self._tab_cloud(notebook)
+        self._tab_binding(notebook)
 
         # 选项卡内容建完后再居中并按内容自适应尺寸
-        center_window(self.win, root, 560, 560)
+        center_window(self.win, root, 580, 640)
 
     # ---- Tab: 开机自启 ----
     def _tab_autostart(self, nb):
@@ -577,6 +579,261 @@ class SettingsDialog:
                   padx=14, pady=6, cursor="hand2").pack(anchor=tk.W, padx=14, pady=10)
 
         refresh_status()
+
+    # ---- Tab: 手机绑定 ----
+    def _tab_binding(self, nb):
+        import cloud_api
+
+        tab = tk.Frame(nb, bg=BG_PANEL)
+        nb.add(tab, text="手机绑定")
+
+        tk.Label(tab, text="官网后端", font=("Microsoft YaHei UI", 12, "bold"),
+                 bg=BG_PANEL, fg=FG_ACCENT).pack(anchor=tk.W, padx=14, pady=(14, 2))
+        tk.Label(tab,
+                 text="在电脑上输入手机端「云端绑定」里显示的设备 ID 发起绑定，\n"
+                      "手机会弹窗确认；换绑需要输入教师密钥，成功后原手机立即失效。",
+                 font=("Microsoft YaHei UI", 9), bg=BG_PANEL, fg=FG_DIM,
+                 justify=tk.LEFT).pack(anchor=tk.W, padx=14, pady=(0, 10))
+
+        cfg = cloud_api.config()
+        form = tk.Frame(tab, bg=BG_PANEL)
+        form.pack(fill=tk.X, padx=14)
+
+        row = tk.Frame(form, bg=BG_PANEL)
+        row.pack(fill=tk.X, pady=4)
+        tk.Label(row, text="服务器", width=8, anchor="w", bg=BG_PANEL, fg=FG_TEXT,
+                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        e_base = tk.Entry(row, font=("Consolas", 10), bg=BG_CELL, fg=FG_TEXT,
+                          insertbackground=FG_TEXT, relief=tk.FLAT)
+        e_base.insert(0, cfg["base"])
+        e_base.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+
+        row2 = tk.Frame(form, bg=BG_PANEL)
+        row2.pack(fill=tk.X, pady=4)
+        tk.Label(row2, text="设备 ID", width=8, anchor="w", bg=BG_PANEL, fg=FG_TEXT,
+                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        dev_label = tk.Label(row2, text=cfg["device_id"] or "尚未注册",
+                             font=("Consolas", 9), bg=BG_CELL, fg=FG_TEXT,
+                             anchor="w", padx=6)
+        dev_label.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=5)
+
+        def copy_id():
+            current = cloud_api.config()["device_id"]
+            if not current:
+                return
+            self.win.clipboard_clear()
+            self.win.clipboard_append(current)
+            msg.config(text="✓ 设备 ID 已复制，发到手机即可绑定", fg=FG_OK)
+
+        tk.Button(row2, text="复制", command=copy_id, bg=BG_CELL_ALT, fg=FG_TEXT,
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 9), padx=8,
+                  cursor="hand2").pack(side=tk.LEFT, padx=(6, 0))
+
+        row3 = tk.Frame(form, bg=BG_PANEL)
+        row3.pack(fill=tk.X, pady=4)
+        tk.Label(row3, text="手机 ID", width=8, anchor="w", bg=BG_PANEL, fg=FG_TEXT,
+                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        e_phone = tk.Entry(row3, font=("Consolas", 10), bg=BG_CELL, fg=FG_TEXT,
+                           insertbackground=FG_TEXT, relief=tk.FLAT)
+        e_phone.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+
+        status_label = tk.Label(tab, text="", font=("Microsoft YaHei UI", 9),
+                                bg=BG_PANEL, fg=FG_DIM, justify=tk.LEFT,
+                                wraplength=500)
+        status_label.pack(anchor=tk.W, padx=14, pady=(10, 4))
+
+        tk.Label(tab, text="已绑定手机", font=("Microsoft YaHei UI", 10, "bold"),
+                 bg=BG_PANEL, fg=FG_TEXT).pack(anchor=tk.W, padx=14, pady=(8, 2))
+        phones_box = tk.Frame(tab, bg=BG_PANEL)
+        phones_box.pack(fill=tk.X, padx=14)
+
+        msg = tk.Label(tab, text="", font=("Microsoft YaHei UI", 9),
+                       bg=BG_PANEL, fg=FG_DIM, justify=tk.LEFT)
+        msg.pack(anchor=tk.W, padx=14, pady=4)
+
+        def alive() -> bool:
+            try:
+                return bool(self.win.winfo_exists())
+            except tk.TclError:
+                return False
+
+        def render_phones(phones):
+            for child in phones_box.winfo_children():
+                child.destroy()
+            if not phones:
+                tk.Label(phones_box, text="（暂无，在下面输入手机设备 ID 发起绑定）",
+                         font=("Microsoft YaHei UI", 9), bg=BG_PANEL,
+                         fg=FG_DIM).pack(anchor=tk.W, pady=2)
+                return
+            for item in phones:
+                line = tk.Frame(phones_box, bg=BG_PANEL)
+                line.pack(fill=tk.X, pady=2)
+                tag = "确认设备" if item.get("confirm") else "只读"
+                tk.Label(line, text=f'{item.get("name") or "手机"}  ·  {tag}',
+                         font=("Microsoft YaHei UI", 9), bg=BG_PANEL,
+                         fg=FG_OK if item.get("confirm") else FG_DIM,
+                         anchor="w").pack(side=tk.LEFT, fill=tk.X, expand=True)
+                tk.Button(line, text="解绑",
+                          command=lambda pid=item["phoneId"]: do_revoke(pid),
+                          bg=BG_CELL, fg=FG_DANGER, relief=tk.FLAT,
+                          font=("Microsoft YaHei UI", 8), padx=6,
+                          cursor="hand2").pack(side=tk.LEFT)
+
+        def do_revoke(phone_id: str):
+            def worker():
+                try:
+                    cloud_api.revoke_phone(phone_id)
+                    text, fg = "✓ 已解绑，该手机立即失效", FG_OK
+                except Exception as exc:
+                    text, fg = f"解绑失败：{exc}", FG_DANGER
+                if not alive():
+                    return
+                self.win.after(0, lambda: (msg.config(text=text, fg=fg), load_phones()))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def do_bind():
+            phone_id = e_phone.get().strip()
+            if not phone_id:
+                msg.config(text="请先填手机端设备 ID", fg=FG_WARN)
+                return
+            try:
+                bound = int(cloud_api.status().get("phones") or 0) > 0
+            except Exception:
+                bound = False
+            replace = False
+            if bound:
+                key = simpledialog.askstring(
+                    "换绑验证", "本机已绑定手机，换绑需要输入教师密钥：",
+                    show="*", parent=self.win)
+                if key is None:
+                    return
+                if not auth.verify(key):
+                    msg.config(text="教师密钥不正确，已取消换绑", fg=FG_DANGER)
+                    return
+                replace = True
+            msg.config(text="正在发送绑定申请…", fg=FG_DIM)
+
+            def worker():
+                try:
+                    data = cloud_api.bind_phone(phone_id, replace)
+                except Exception as exc:
+                    if alive():
+                        self.win.after(0, lambda e=exc: msg.config(
+                            text=f"✗ 绑定失败：{e}", fg=FG_DANGER))
+                    return
+                if data.get("status") == "approved":
+                    if alive():
+                        self.win.after(0, lambda: (
+                            msg.config(text="✓ 这台手机之前已绑定，同步已恢复", fg=FG_OK),
+                            load_phones()))
+                    return
+                rid = data.get("requestId") or ""
+                if alive():
+                    self.win.after(0, lambda: msg.config(
+                        text="已发送，请在手机上点「同意」…（10 分钟内有效）",
+                        fg=FG_ACCENT))
+                deadline = time.time() + 600
+                while alive() and time.time() < deadline:
+                    time.sleep(2)
+                    try:
+                        st = cloud_api.bind_status(phone_id, rid).get("status")
+                    except Exception:
+                        continue
+                    if st in ("approved", "denied", "expired"):
+                        text, fg = {
+                            "approved": ("✓ 手机已确认，绑定成功", FG_OK),
+                            "denied": ("✗ 手机上拒绝了本次绑定", FG_DANGER),
+                            "expired": ("✗ 申请已过期，请重新发起", FG_WARN),
+                        }[st]
+                        if alive():
+                            self.win.after(0, lambda: (
+                                msg.config(text=text, fg=fg),
+                                st == "approved" and load_phones()))
+                        return
+                if alive():
+                    self.win.after(0, lambda: msg.config(
+                        text="等待超时，手机没有确认", fg=FG_WARN))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def load_phones():
+            def worker():
+                try:
+                    phones = cloud_api.list_phones()
+                    err = ""
+                except Exception as exc:
+                    phones, err = [], str(exc)
+                if not alive():
+                    return
+                self.win.after(0, lambda: (
+                    render_phones(phones),
+                    err and msg.config(text=f"读取手机列表失败：{err}", fg=FG_DANGER)))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def do_save_base():
+            base = e_base.get().strip().rstrip("/")
+            if not base.startswith("http"):
+                messagebox.showwarning("地址不对", "服务器地址要以 http:// 或 https:// 开头",
+                                       parent=self.win)
+                return
+            cloud_api.save_config(base=base)
+            msg.config(text="✓ 已保存，后台会自动重新连接", fg=FG_OK)
+
+        def do_reset():
+            if not messagebox.askyesno("重新注册",
+                                       "将清空本机设备 ID 与密钥，已绑定手机全部失效。\n"
+                                       "确定继续？", parent=self.win):
+                return
+            cloud_api.forget_binding()
+            dev_label.config(text="尚未注册")
+            msg.config(text="已清空，后台会自动重新注册新的设备 ID", fg=FG_WARN)
+            load_phones()
+
+        buttons = tk.Frame(tab, bg=BG_PANEL)
+        buttons.pack(fill=tk.X, padx=14, pady=(8, 4))
+        tk.Button(buttons, text="绑定这台手机", command=do_bind,
+                  bg=BG_IN_CLASS, fg=FG_TEXT, activebackground="#4b7b4b",
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 9, "bold"),
+                  padx=10, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(buttons, text="保存服务器地址", command=do_save_base,
+                  bg=BG_CELL, fg=FG_TEXT, activebackground=BG_CELL_ALT,
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 9),
+                  padx=10, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(buttons, text="刷新手机列表", command=load_phones,
+                  bg=BG_CELL, fg=FG_TEXT, activebackground=BG_CELL_ALT,
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 9),
+                  padx=10, pady=5, cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(buttons, text="重新注册本机", command=do_reset,
+                  bg=BG_CELL, fg=FG_DANGER, activebackground=BG_CELL_ALT,
+                  relief=tk.FLAT, font=("Microsoft YaHei UI", 9),
+                  padx=10, pady=5, cursor="hand2").pack(side=tk.LEFT)
+
+        def refresh_binding_status():
+            if not alive():
+                return
+            st = cloud_api.status()
+            now_cfg = cloud_api.config()
+            if not now_cfg["device_id"]:
+                dev_label.config(text="尚未注册")
+            elif dev_label.cget("text") == "尚未注册":
+                dev_label.config(text=now_cfg["device_id"])
+            if st.get("reachable") and not st.get("last_error"):
+                mode = "Gitee 中继兜底" if st.get("mode") == "gitee" else "官网后端在线"
+                text, fg = f"状态：{mode} · 已绑定 {st.get('phones', 0)} 台手机", FG_OK
+            elif st.get("reachable"):
+                text, fg = f'状态：后端报错 · {st["last_error"]}', FG_DANGER
+            elif st.get("last_error"):
+                text, fg = f'状态：官网后端不可达 · {st["last_error"]}\n已自动改用 Gitee 中继', FG_WARN
+            else:
+                text, fg = "状态：等待后台服务启动…", FG_DIM
+            status_label.config(text=text, fg=fg)
+            self.win.after(2000, refresh_binding_status)
+
+        render_phones([])
+        load_phones()
+        refresh_binding_status()
 
     def _tab_password(self, nb):
         tab = tk.Frame(nb, bg=BG_PANEL)

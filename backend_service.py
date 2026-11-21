@@ -20,7 +20,7 @@ import auth
 import instance_guard
 import score_records
 import lan_server
-import cloud_relay
+import cloud_api
 import update_checker
 
 if getattr(sys, "frozen", False):
@@ -252,8 +252,8 @@ def main():
                     log(f"局域网服务：{lan_msg}  {lan_url}")
                     last_lan_msg = lan_msg
 
-            # Gitee 云端中继：手机不在同一 Wi-Fi 时也能查看数据、回传确认
-            cloud_relay.start(log)
+            # 云同步：优先官网后端（Netlify），不可达时自动回退 Gitee 中继
+            cloud_api.start(log)
 
             # 定时重置：卫生每天中午 12:00，积分每周一中午 12:00（重置前归档 XLSX）
             if time.time() - last_reset_check >= reset_check_gap:
@@ -301,7 +301,7 @@ def main():
     finally:
         kill_overlay()
         kill_ball()
-        cloud_relay.stop()
+        cloud_api.stop()
         auth.unlock_password_file()
         clean_pid()
         log("backend 退出")

@@ -196,3 +196,13 @@ timetable/.platform/
 timetable/.kotlin/
 timetable/local.properties
 
+# 官网后端（Netlify Functions）
+node_modules/
+server/.data/
+server/.data-test/
+.netlify/
+
+# 官网下载的安装包走 Gitee Release / Netlify，不进 Git
+官网/downloads/
+.trae-html-share-packages/
+
