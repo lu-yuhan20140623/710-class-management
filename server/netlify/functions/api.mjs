@@ -3,8 +3,9 @@
 // 设计要点：
 //  - 服务端只存“密文 + 公钥”，快照与指令的明文永远不离开两端（沿用两端现有的
 //    DH + AES-256-GCM 方案）。
-//  - 一台电脑（PC）只有一个“确认设备”（confirm=true），其余手机只读；
-//    换绑必须由电脑端先验证教师密钥，再带 replace=true 调这里。
+//  - 绑定由电脑端发起：电脑输入手机设备 ID，手机端弹窗同意后才生效。
+//  - 一台电脑只保留一台手机（confirm 设备）；换绑需电脑端先验证教师密钥，
+//    再带 replace=true 调用。
 //  - 手机可绑定多台电脑，但同一时刻只订阅其中一台。
 import {
   authenticate, fail, findPhone, hashSecret, json, newId, newSecret,
@@ -76,53 +77,86 @@ async function register(req) {
   return json({ ok: true, deviceId: id, secret, kind });
 }
 
-// ---------------- 配对 ----------------
-async function createPairRequest(req) {
+// ---------------- 绑定（电脑输入手机 ID → 手机确认） ----------------
+async function createBind(req) {
   const auth = await authenticate(req);
   if (!auth) return fail("设备未授权", 401);
-  if (auth.dev.kind !== "phone") return fail("仅手机端可发起绑定", 403);
+  if (auth.dev.kind !== "pc") return fail("仅电脑端可发起绑定", 403);
 
   const body = await readJson(req);
   if (!body) return fail("请求体不是合法 JSON");
-  const pcId = String(body.pcId || "").trim();
+  const phoneId = String(body.phoneId || "").trim();
   const pub = String(body.pub || "").trim();
-  if (!pcId || !pub) return fail("缺少 pcId 或 pub");
+  if (!phoneId || !pub) return fail("缺少 phoneId 或 pub");
 
   const s = await store();
-  const pcDev = await s.get(`dev/${pcId}`, { type: "json" });
-  if (!pcDev || pcDev.kind !== "pc") return fail("电脑端未注册", 404);
+  const phoneDev = await s.get(`dev/${phoneId}`, { type: "json" });
+  if (!phoneDev || phoneDev.kind !== "phone") return fail("手机端未注册", 404);
 
-  const meta = await pcMeta(pcId);
-  const bound = meta ? findPhone(meta, auth.id) : null;
+  const meta = (await pcMeta(auth.id)) || {
+    name: auth.dev.name || "",
+    createdAt: Date.now(),
+    phones: [],
+  };
+  const bound = findPhone(meta, phoneId);
   if (bound) {
-    // 已绑定过：直接算成功，省得重复弹窗
-    return json({ ok: true, requestId: "", status: "approved", pcPub: bound.pub || "" });
+    // 这台手机之前就绑定过：直接更新公钥，不用再确认
+    bound.pub = pub;
+    bound.confirm = true;
+    await s.setJSON(`pc/${auth.id}/meta`, meta);
+    return json({
+      ok: true, requestId: "", status: "approved",
+      phoneName: bound.name || "", pcName: meta.name || "",
+    });
+  }
+
+  const confirmPhone = meta.phones.find((p) => p.confirm);
+  if (confirmPhone && confirmPhone.phoneId !== phoneId && body.replace !== true) {
+    return fail("已有确认设备，换绑需先在电脑端验证教师密钥", 409);
   }
 
   const requestId = newId();
-  await s.setJSON(`pair/${pcId}/${requestId}`, {
+  await s.setJSON(`req/${phoneId}/${requestId}`, {
     requestId,
-    pcId,
-    pcName: pcDev.name || "",
-    phoneId: auth.id,
-    phoneName: auth.dev.name || "",
-    pub,
+    pcId: auth.id,
+    pcName: meta.name || "",
+    phoneId,
+    phoneName: phoneDev.name || "",
+    pcPub: pub,
+    replace: body.replace === true,
     status: "pending",
-    pcPub: "",
     createdAt: Date.now(),
   });
   return json({ ok: true, requestId, status: "pending" });
 }
 
-async function pendingRequests(req, pcId) {
-  const guard = await requirePc(req, pcId);
+async function bindStatus(req, phoneId, requestId) {
+  const auth = await authenticate(req);
+  if (!auth || auth.dev.kind !== "pc") return fail("设备未授权", 401);
+
+  const s = await store();
+  const request = await s.get(`req/${phoneId}/${requestId}`, { type: "json" });
+  if (!request || request.pcId !== auth.id) return fail("绑定申请不存在", 404);
+  if (request.status === "pending" && Date.now() - (request.createdAt || 0) > PAIR_TTL_MS) {
+    request.status = "expired";
+    await s.setJSON(`req/${phoneId}/${requestId}`, request);
+  }
+  return json({
+    ok: true,
+    status: request.status,
+    phoneName: request.phoneName || "",
+    pcName: request.pcName || "",
+  });
+}
+
+async function phoneInbox(req) {
+  const guard = await requirePhone(req);
   if (guard.error) return guard.error;
 
   const now = Date.now();
-  const items = await listJson(`pair/${pcId}/`);
   const s = await store();
   const requests = [];
-  for (const { key, data } of items) {
+  for (const { key, data } of await listJson(`req/${guard.auth.id}/`)) {
     if (data.status !== "pending") continue;
     if (now - (data.createdAt || 0) > PAIR_TTL_MS) {
       data.status = "expired";
@@ -131,9 +165,9 @@ async function pendingRequests(req, pcId) {
     }
     requests.push({
       requestId: data.requestId,
-      phoneId: data.phoneId,
-      phoneName: data.phoneName || "",
-      pub: data.pub,
+      pcId: data.pcId,
+      pcName: data.pcName || "",
+      pcPub: data.pcPub || "",
       createdAt: data.createdAt,
     });
   }
@@ -141,86 +175,59 @@ async function pendingRequests(req, pcId) {
   return json({ ok: true, requests });
 }
 
-async function decidePair(req, pcId, requestId) {
-  const guard = await requirePc(req, pcId);
-  if (guard.error) return guard.error;
+async function decideBind(req, requestId) {
+  const auth = await authenticate(req);
+  if (!auth) return fail("设备未授权", 401);
+  if (auth.dev.kind !== "phone") return fail("仅手机端可确认绑定", 403);
 
   const body = await readJson(req);
   if (!body) return fail("请求体不是合法 JSON");
   const approve = body.approve === true;
   const pub = String(body.pub || "").trim();
-  const replace = body.replace === true;
+  if (approve && !pub) return fail("同意绑定时必须带上手机公钥");
 
   const s = await store();
-  const key = `pair/${pcId}/${requestId}`;
+  const key = `req/${auth.id}/${requestId}`;
   const request = await s.get(key, { type: "json" });
   if (!request) return fail("绑定申请不存在", 404);
   if (request.status !== "pending") return fail("该申请已处理", 409);
-  if (approve && !pub) return fail("同意绑定时必须带上电脑端公钥");
 
+  if (!approve) {
+    request.status = "denied";
+    request.decidedAt = Date.now();
+    await s.setJSON(key, request);
+    return json({ ok: true, status: "denied" });
+  }
+
+  const pcId = request.pcId;
   const meta = (await pcMeta(pcId)) || {
     name: request.pcName || "",
     createdAt: Date.now(),
     phones: [],
   };
-
-  if (approve) {
-    const confirmPhone = meta.phones.find((p) => p.confirm);
-    const isReplacing = !!(confirmPhone && confirmPhone.phoneId !== request.phoneId && replace);
-    if (isReplacing) {
-      // 换绑：旧确认设备立即失效，连它的快照和指令一起清掉
-      meta.phones = meta.phones.filter((p) => p.phoneId !== confirmPhone.phoneId);
-      await s.delete(`snap/${pcId}/${confirmPhone.phoneId}`);
-      for (const item of await listJson(`act/${pcId}/`)) {
-        if (item.data.phoneId === confirmPhone.phoneId) {
-          await s.delete(item.key);
-        }
-      }
+  // 一台电脑只保留一台手机：其余设备连同快照、指令一起清掉
+  for (const p of meta.phones) {
+    if (p.phoneId === auth.id) continue;
+    await s.delete(`snap/${pcId}/${p.phoneId}`);
+    for (const item of await listJson(`act/${pcId}/`)) {
+      if (item.data.phoneId === p.phoneId) await s.delete(item.key);
     }
-    const existing = meta.phones.find((p) => p.phoneId === request.phoneId);
-    if (existing) {
-      // phones[].pub 必须是手机的公钥，电脑靠它派生会话密钥
-      existing.pub = request.pub;
-      existing.name = request.phoneName || existing.name || "";
-      if (isReplacing) existing.confirm = true;
-    } else {
-      meta.phones.push({
-        phoneId: request.phoneId,
-        name: request.phoneName || "",
-        pub: request.pub,
-        // 已有确认设备时，新加入的手机只能只读
-        confirm: isReplacing || !meta.phones.some((p) => p.confirm),
-        addedAt: Date.now(),
-      });
-    }
-    await s.setJSON(`pc/${pcId}/meta`, meta);
-    request.status = "approved";
-    request.pcPub = pub;
-  } else {
-    request.status = "denied";
   }
+  meta.phones = [{
+    phoneId: auth.id,
+    name: auth.dev.name || request.phoneName || "",
+    pub,
+    confirm: true,
+    addedAt: Date.now(),
+  }];
+  await s.setJSON(`pc/${pcId}/meta`, meta);
+
+  request.status = "approved";
   request.decidedAt = Date.now();
   await s.setJSON(key, request);
-  return json({ ok: true, status: request.status });
-}
-
-async function pairStatus(req, pcId, requestId) {
-  const guard = await requirePhone(req);
-  if (guard.error) return guard.error;
-
-  const s = await store();
-  const request = await s.get(`pair/${pcId}/${requestId}`, { type: "json" });
-  if (!request) return fail("绑定申请不存在", 404);
-  if (request.phoneId !== guard.auth.id) return fail("无权查看该申请", 403);
-  if (request.status === "pending" && Date.now() - (request.createdAt || 0) > PAIR_TTL_MS) {
-    request.status = "expired";
-    await s.setJSON(`pair/${pcId}/${requestId}`, request);
-  }
   return json({
-    ok: true,
-    status: request.status,
-    pcPub: request.pcPub || "",
-    pcName: request.pcName || "",
+    ok: true, status: "approved",
+    pcId, pcName: meta.name || "", pcPub: request.pcPub,
   });
 }
 
@@ -343,24 +350,18 @@ export default async function handler(req) {
     if (seg.length === 1 && seg[0] === "register" && method === "POST") {
       return await register(req);
     }
-    if (seg[0] === "pair") {
-      if (seg.length === 2 && seg[1] === "request" && method === "POST") {
-        return await createPairRequest(req);
+    if (seg[0] === "bind" && seg.length === 1 && method === "POST") {
+      return await createBind(req);
+    }
+    if (seg[0] === "bind" && seg.length === 3 && method === "GET") {
+      return await bindStatus(req, seg[1], seg[2]);
+    }
+    if (seg[0] === "pair" && seg[1] === "inbox") {
+      if (seg.length === 2 && method === "GET") {
+        return await phoneInbox(req);
       }
-      if (seg.length === 2 && seg[1] === "requests" && method === "GET") {
-        const auth = await authenticate(req);
-        if (!auth || auth.dev.kind !== "pc") return fail("设备未授权", 401);
-        return await pendingRequests(req, auth.id);
-      }
-      if (seg.length === 3 && seg[1] === "requests" && method === "GET") {
-        const pcId = String(new URL(req.url).searchParams.get("pcId") || "").trim();
-        if (!pcId) return fail("缺少 pcId");
-        return await pairStatus(req, pcId, seg[2]);
-      }
-      if (seg.length === 4 && seg[1] === "requests" && method === "POST" && seg[3] === "decide") {
-        const auth = await authenticate(req);
-        if (!auth || auth.dev.kind !== "pc") return fail("设备未授权", 401);
-        return await decidePair(req, auth.id, seg[2]);
+      if (seg.length === 4 && seg[3] === "decide" && method === "POST") {
+        return await decideBind(req, seg[2]);
       }
     }
     if (seg[0] === "pc" && seg.length >= 3) {

@@ -68,61 +68,56 @@ async function main() {
     const phone1 = await register("phone", "老师手机");
     const phone2 = await register("phone", "备用手机");
 
-    // 1. 手机发起绑定，电脑拉取申请
-    let res = await call("POST", "/pair/request", {
-      token: phone1,
-      body: { pcId: pc.deviceId, pub: "PHONE1_PUB" },
+    // 1. 电脑输入手机 ID 发起绑定，手机在收件箱里看到申请
+    let res = await call("POST", "/bind", {
+      token: pc,
+      body: { phoneId: phone1.deviceId, pub: "PC_PUB" },
     });
     assert.equal(res.status, 200);
+    assert.equal(res.data.status, "pending");
     const req1 = res.data.requestId;
 
-    res = await call("GET", "/pair/requests", { token: pc });
+    res = await call("GET", "/pair/inbox", { token: phone1 });
     assert.equal(res.status, 200);
     assert.equal(res.data.requests.length, 1);
-    assert.equal(res.data.requests[0].phoneId, phone1.deviceId);
+    assert.equal(res.data.requests[0].pcId, pc.deviceId);
+    assert.equal(res.data.requests[0].pcPub, "PC_PUB");
 
-    // 2. 电脑同意（第一台自动成为确认设备）
-    res = await call("POST", `/pair/requests/${req1}/decide`, {
-      token: pc,
-      body: { approve: true, pub: "PC_PUB" },
+    // 2. 手机同意 → 电脑端出现唯一确认设备
+    res = await call("POST", `/pair/inbox/${req1}/decide`, {
+      token: phone1,
+      body: { approve: true, pub: "PHONE1_PUB" },
     });
     assert.equal(res.status, 200);
-
-    res = await call("GET", `/pair/requests/${req1}?pcId=${pc.deviceId}`, { token: phone1 });
     assert.equal(res.data.status, "approved");
     assert.equal(res.data.pcPub, "PC_PUB");
 
+    res = await call("GET", `/bind/${phone1.deviceId}/${req1}`, { token: pc });
+    assert.equal(res.data.status, "approved");
+
     res = await call("GET", `/pc/${pc.deviceId}/phones`, { token: pc });
     assert.equal(res.data.phones.length, 1);
+    assert.equal(res.data.phones[0].phoneId, phone1.deviceId);
+    assert.equal(res.data.phones[0].pub, "PHONE1_PUB");
     assert.equal(res.data.phones[0].confirm, true);
 
-    // 3. 第二台手机：只能只读加入，不能顶替确认设备
-    res = await call("POST", "/pair/request", {
-      token: phone2,
-      body: { pcId: pc.deviceId, pub: "PHONE2_PUB" },
-    });
-    const req2 = res.data.requestId;
-    res = await call("POST", `/pair/requests/${req2}/decide`, {
+    // 3. 没验证教师密钥时不能直接换绑
+    res = await call("POST", "/bind", {
       token: pc,
-      body: { approve: true, pub: "PC_PUB2" },
+      body: { phoneId: phone2.deviceId, pub: "PC_PUB" },
     });
-    assert.equal(res.status, 200);
-    res = await call("GET", `/pc/${pc.deviceId}/phones`, { token: pc });
-    const confirmCount = res.data.phones.filter((p) => p.confirm).length;
-    assert.equal(confirmCount, 1);
-    assert.equal(res.data.phones.length, 2);
+    assert.equal(res.status, 409);
 
-    // 4. 快照：各手机各一份密文
+    // 4. 快照：只有已绑定的手机能读到
     res = await call("PUT", `/pc/${pc.deviceId}/snapshot/${phone1.deviceId}`, {
       token: pc,
-      body: { cipher: "CIPHER1", version: "2.2.1" },
+      body: { cipher: "CIPHER1", version: "2.2.2" },
     });
     assert.equal(res.status, 200);
     res = await call("GET", `/pc/${pc.deviceId}/snapshot`, { token: phone1 });
     assert.equal(res.data.cipher, "CIPHER1");
     res = await call("GET", `/pc/${pc.deviceId}/snapshot`, { token: phone2 });
-    assert.equal(res.status, 200);
-    assert.equal(res.data.exists, false);
+    assert.equal(res.status, 403);
 
     // 未绑定手机读不到
     res = await call("GET", `/pc/${pc.deviceId}/snapshot`, { token: await register("phone", "路人") });
@@ -143,28 +138,42 @@ async function main() {
     res = await call("GET", `/pc/${pc.deviceId}/actions`, { token: pc });
     assert.equal(res.data.actions.length, 0);
 
-    // 6. 换绑：不带 replace 时拒绝，带 replace 时旧确认设备立即失效
-    const phone3 = await register("phone", "新手机");
-    res = await call("POST", "/pair/request", {
-      token: phone3,
-      body: { pcId: pc.deviceId, pub: "PHONE3_PUB" },
-    });
-    const req3 = res.data.requestId;
-    res = await call("POST", `/pair/requests/${req3}/decide`, {
+    // 6. 换绑：带 replace，手机确认后旧设备连同快照一起失效
+    res = await call("POST", "/bind", {
       token: pc,
-      body: { approve: true, pub: "PC_PUB3", replace: true },
+      body: { phoneId: phone2.deviceId, pub: "PC_PUB", replace: true },
     });
     assert.equal(res.status, 200);
-    res = await call("GET", `/pc/${pc.deviceId}/phones`, { token: pc });
-    const phones = res.data.phones;
-    assert.equal(phones.filter((p) => p.confirm).length, 1);
-    assert.equal(phones.find((p) => p.confirm).phoneId, phone3.deviceId);
-    assert.equal(phones.some((p) => p.phoneId === phone1.deviceId), false);
+    const req2 = res.data.requestId;
+    res = await call("POST", `/pair/inbox/${req2}/decide`, {
+      token: phone2,
+      body: { approve: true, pub: "PHONE2_PUB" },
+    });
+    assert.equal(res.data.status, "approved");
 
+    res = await call("GET", `/pc/${pc.deviceId}/phones`, { token: pc });
+    assert.equal(res.data.phones.length, 1);
+    assert.equal(res.data.phones[0].phoneId, phone2.deviceId);
+    assert.equal(res.data.phones[0].confirm, true);
     res = await call("GET", `/pc/${pc.deviceId}/snapshot`, { token: phone1 });
     assert.equal(res.status, 403);
 
-    // 7. 鉴权：错误密钥被拒
+    // 7. 手机可以拒绝绑定
+    const phone3 = await register("phone", "备用机");
+    res = await call("POST", "/bind", {
+      token: pc,
+      body: { phoneId: phone3.deviceId, pub: "PC_PUB", replace: true },
+    });
+    const req3 = res.data.requestId;
+    res = await call("POST", `/pair/inbox/${req3}/decide`, {
+      token: phone3,
+      body: { approve: false },
+    });
+    assert.equal(res.data.status, "denied");
+    res = await call("GET", `/bind/${phone3.deviceId}/${req3}`, { token: pc });
+    assert.equal(res.data.status, "denied");
+
+    // 8. 鉴权：错误密钥被拒
     res = await call("GET", `/pc/${pc.deviceId}/phones`, {
       token: { deviceId: pc.deviceId, secret: "wrong" },
     });
