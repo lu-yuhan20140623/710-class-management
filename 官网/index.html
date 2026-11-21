@@ -714,7 +714,7 @@
           手机随时查看——把琐碎的班级事务，交给一块安静运行的桌面程序。
         </p>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="downloads/ClassSchedule_Setup_2.2.3.exe" data-dl="win" download>
+          <a class="btn btn-primary" href="/download/win" data-dl="win">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
             下载 Windows 版
           </a>
@@ -1135,7 +1135,7 @@
             <div><h3>Windows 桌面版</h3><span>v2.2.3 · 适用于 Windows 10 / 11</span></div>
           </div>
           <div class="dl-meta"><i>约 42 MB</i><i>安装包</i><i>支持自动更新</i></div>
-          <a class="btn btn-primary" href="downloads/ClassSchedule_Setup_2.2.3.exe" data-dl="win" download>
+          <a class="btn btn-primary" href="/download/win" data-dl="win">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
             下载 Windows 版
           </a>
@@ -1207,7 +1207,7 @@
       <h2>把时间还给课堂</h2>
       <p>下载课程表，让提醒、积分和卫生记录安静地待在后台，需要时再出现。</p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="downloads/ClassSchedule_Setup_2.2.3.exe" data-dl="win" download>下载 Windows 版</a>
+        <a class="btn btn-primary" href="/download/win" data-dl="win">下载 Windows 版</a>
         <a class="btn btn-ghost" href="https://gitee.com/lu-yuhan20140623/710" target="_blank" rel="noreferrer">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-4 1.5-6-1-6-1M15 22v-3.9a3.4 3.4 0 0 0-1-2.6c3.3-.4 6.8-1.7 6.8-7.5A5.8 5.8 0 0 0 19.3 4a5.4 5.4 0 0 0-.1-4S17.9-.3 15 1.4a13.4 13.4 0 0 0-7 0C5.1-.3 3.8 0 3.8 0a5.4 5.4 0 0 0-.1 4A5.8 5.8 0 0 0 2.2 8c0 5.8 3.5 7.1 6.8 7.5a3.4 3.4 0 0 0-1 2.6V22"/></svg>
           在 Gitee 查看源码
@@ -1355,23 +1355,6 @@
   if(copy){
     copy.textContent = "© " + new Date().getFullYear() + " 课程表 · 以 MIT License 开源";
   }
-})();
-</script>
-<script>
-/* 下载优先走 Gitee Release（更快）；连不上或没有对应版本时退回本站 downloads/ */
-(function(){
-  var ver = "2.2.3";
-  var gitee = "https://gitee.com/lu-yuhan20140623/710/releases/download/v" + ver
-            + "/ClassSchedule_Setup_" + ver + ".exe";
-  var links = document.querySelectorAll('a[data-dl="win"]');
-  if(!links.length) return;
-  fetch(gitee, {method:"HEAD", mode:"cors", cache:"no-store"})
-    .then(function(r){
-      if(r.ok){
-        for(var i=0;i<links.length;i++) links[i].href = gitee;
-      }
-    })
-    .catch(function(){ /* 保持本站链接 */ });
 })();
 </script>
 </body>
