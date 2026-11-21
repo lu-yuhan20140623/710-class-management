@@ -103,6 +103,41 @@ def open_quick_panel(ctx):
 
     win = tk.Toplevel(ctx.app)
     _PANEL = win
+
+    def _destroy_panel():
+        global _PANEL
+        try:
+            win.destroy()
+        except tk.TclError:
+            pass
+        if _PANEL is win:
+            _PANEL = None
+
+    opened_at = time.monotonic()
+
+    def _close_if_outside():
+        """延迟复查焦点：焦点还在面板内（含子控件）就不关，否则关闭。"""
+        try:
+            if not win.winfo_exists():
+                return
+            if time.monotonic() - opened_at < 0.2:
+                win.after(80, _close_if_outside)
+                return
+            focused = win.focus_get()
+            if focused is not None and str(focused.winfo_toplevel()) == str(win):
+                return
+            _destroy_panel()
+        except tk.TclError:
+            _destroy_panel()
+        except KeyError:
+            pass
+
+    def _on_focus_out(_event=None):
+        try:
+            win.after(60, _close_if_outside)
+        except tk.TclError:
+            pass
+
     win.overrideredirect(True)
     win.attributes("-topmost", True)
     win.configure(bg=BG_CELL)
@@ -112,7 +147,7 @@ def open_quick_panel(ctx):
     head.pack(fill=tk.X, padx=14, pady=(10, 4))
     tk.Label(head, text="快捷操作", font=(FONT, 12, "bold"), bg=BG_CELL,
              fg=FG_ACCENT).pack(side=tk.LEFT)
-    tk.Button(head, text="✕", command=win.destroy, bg=BG_CELL, fg=FG_DIM,
+    tk.Button(head, text="✕", command=_destroy_panel, bg=BG_CELL, fg=FG_DIM,
               activebackground=BG_CELL, activeforeground=FG_TEXT, relief=tk.FLAT,
               font=(FONT, 10), cursor="hand2").pack(side=tk.RIGHT)
 
@@ -126,16 +161,14 @@ def open_quick_panel(ctx):
     ]
     for text, action, primary in actions:
         def run(act=action):
-            try:
-                win.destroy()
-            except tk.TclError:
-                pass
+            _destroy_panel()
             act()
         _btn(win, text, run, primary=primary, width=20)\
             .pack(fill=tk.X, padx=14, pady=3)
     tk.Frame(win, bg=BG_CELL, height=8).pack()
 
-    win.bind("<Escape>", lambda e: win.destroy())
+    win.bind("<Escape>", lambda e: _destroy_panel())
+    win.bind("<FocusOut>", _on_focus_out)
     win.update_idletasks()
     width = int(220 * k)
     height = win.winfo_reqheight()
