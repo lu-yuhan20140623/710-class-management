@@ -1,13 +1,13 @@
 {
-  "version": "2.2.3",
+  "version": "2.2.4",
   "published_at": "2026-11-21",
-  "previous_version": "2.2.2",
+  "previous_version": "2.2.3",
   "exe_changed": true,
-  "notes": "修复每次更新后云同步密钥变化的问题：中继密钥持久化保存，重启与更新都不再重新生成；重新注册设备时保留密钥对。",
-  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.3",
+  "notes": "修复桌面悬浮球快捷面板失去焦点后不自动关闭的问题。",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.4",
   "setup": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.3/ClassSchedule_Setup_2.2.3.exe",
-    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.2.3/ClassSchedule_Setup_2.2.3.exe",
-    "sha256": "b9dd3805adae0af99c800fb24f863616b8c22739d10fa798ffd75c0480a03c3a"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.4/ClassSchedule_Setup_2.2.4.exe",
+    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.2.4/ClassSchedule_Setup_2.2.4.exe",
+    "sha256": "f2bc53f1f16849d77cf32f0b03181c281e1d2527f54582a8d2f414e0ea37669c"
   }
 }
