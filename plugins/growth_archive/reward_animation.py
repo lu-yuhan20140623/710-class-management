@@ -96,30 +96,57 @@ class RewardBurst:
                                     highlightthickness=0, bd=0)
             self.canvas.pack()
 
-            cx, cy = sw // 2, int(sh * 0.40)
-            size = max(32, min(sw, sh) // 10)
-            self.canvas.create_text(cx, cy - size * 1.5, text="积分奖励",
-                                    fill=ACCENT,
-                                    font=("Microsoft YaHei UI", int(size * 0.5), "bold"))
-            self.canvas.create_text(cx, cy + size * 0.35, text=name, fill=TEXT,
-                                    font=("Microsoft YaHei UI", int(size * 1.1), "bold"))
-            self.canvas.create_text(cx, cy + size * 1.35, text=f"+{delta}",
-                                    fill=GOLD,
-                                    font=("Microsoft YaHei UI", int(size * 1.5), "bold"))
-            self.canvas.create_text(cx, cy + size * 2.35, text=reason or "表现优秀",
-                                    fill="#c9d4ea",
-                                    font=("Microsoft YaHei UI", int(size * 0.42)))
+            cx, cy = sw // 2, int(sh * 0.42)
+            size = max(32, min(sw, sh) // 12)
+            # 按实际渲染高度依次往下排，避免字体随 DPI 放大后互相压住
+            rows = [
+                ("积分奖励", ACCENT, size * 0.42, "bold"),
+                (name, TEXT, size * 0.95, "bold"),
+                (f"+{delta}", GOLD, size * 1.15, "bold"),
+                (reason or "表现优秀", "#c9d4ea", size * 0.38, "normal"),
+            ]
+            items = []
+            for text, color, fs, weight in rows:
+                items.append(self.canvas.create_text(
+                    cx, 0, text=text, fill=color,
+                    font=("Microsoft YaHei UI", max(10, int(fs)), weight)))
+            # 姓名过长时先缩字号，避免超出屏幕
+            name_item = items[1]
+            fs = int(size * 0.95)
+            while fs > 14:
+                box = self.canvas.bbox(name_item)
+                if not box or (box[2] - box[0]) <= sw * 0.88:
+                    break
+                fs -= 2
+                self.canvas.itemconfigure(
+                    name_item, font=("Microsoft YaHei UI", fs, "bold"))
 
-            # 放射线 + 星星粒子：从文字外侧起跑，避免整片星星压在名字和分数上
+            gap = max(8, int(size * 0.22))
+            heights = []
+            for it in items:
+                box = self.canvas.bbox(it)
+                heights.append(box[3] - box[1] if box else 0)
+            total = sum(heights) + gap * (len(items) - 1)
+            y = cy - total // 2
+            widths = []
+            for it, h in zip(items, heights):
+                self.canvas.coords(it, cx, y + h // 2)
+                box = self.canvas.bbox(it)
+                widths.append(box[2] - box[0] if box else 0)
+                y += h + gap
+
+            # 星星从文字块外侧起跑，不压在任何一行字上
+            margin = size * 0.25
+            start_r = min(min(sw, sh) * 0.44, max(widths) / 2 + margin)
             for i in range(24):
                 ang = i * (math.pi * 2 / 24)
                 self.particles.append({
                     "angle": ang,
-                    "r": size * 0.75,
+                    "r": start_r,
                     "speed": size * (0.035 + 0.01 * (i % 3)),
                     "item": self.canvas.create_text(cx, cy, text="★", fill=GOLD,
                                                     font=("Microsoft YaHei UI",
-                                                          max(10, size // 6), "bold")),
+                                                          max(10, size // 7), "bold")),
                 })
             self.cx, self.cy = cx, cy
             self.win.bind("<Button-1>", lambda e: self.close())
