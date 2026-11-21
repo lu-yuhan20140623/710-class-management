@@ -58,16 +58,18 @@ class ScoreGroupsMixin:
                         font=(FONT, 10, "bold"))
         style.map("Group.Treeview", background=[("selected", CARD_SELECT)])
 
-        tree = ttk.Treeview(body, columns=("name", "leader", "count", "score"),
+        tree = ttk.Treeview(body, columns=("name", "leader", "count", "own", "score"),
                             show="headings", style="Group.Treeview",
                             selectmode="browse")
         tree.heading("name", text="小组")
         tree.heading("leader", text="组长")
         tree.heading("count", text="人数")
+        tree.heading("own", text="小组专项")
         tree.heading("score", text="积分")
-        tree.column("name", width=int(240 * k), anchor="w")
-        tree.column("leader", width=int(160 * k), anchor="center")
-        tree.column("count", width=int(70 * k), anchor="center")
+        tree.column("name", width=int(220 * k), anchor="w")
+        tree.column("leader", width=int(150 * k), anchor="center")
+        tree.column("count", width=int(60 * k), anchor="center")
+        tree.column("own", width=int(80 * k), anchor="center")
         tree.column("score", width=int(70 * k), anchor="center")
         sb = ttk.Scrollbar(body, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=sb.set)
@@ -82,6 +84,7 @@ class ScoreGroupsMixin:
                 leader_text = f"{leader} {stu[leader]['name']}" if leader in stu else "未指定"
                 tree.insert("", tk.END, iid=gname,
                             values=(gname, leader_text, len(members),
+                                    store.group_own_total(group),
                                     store.group_total(group, stu)))
             if select and tree.exists(select):
                 tree.selection_set(select)

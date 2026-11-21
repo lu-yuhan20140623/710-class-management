@@ -70,6 +70,7 @@ class GrowthArchiveWindow:
         self.nb.pack(fill=tk.BOTH, expand=True, padx=14, pady=8)
         self._build_ranking()
         self._build_rewards()
+        self._build_group_points()
         self._build_trend()
         self._build_duty()
         self._build_export()
@@ -107,6 +108,17 @@ class GrowthArchiveWindow:
             ("total", "累计得分", 100), ("count", "记录数", 90),
         ])
         self.cat_tree.configure(height=6)
+
+    def _build_group_points(self):
+        tab = tk.Frame(self.nb, bg=BG_PANEL)
+        self.nb.add(tab, text="  小组专项  ")
+        tk.Label(tab, text="只统计直接记在小组名下的分，不含组员个人积分（也不计入个人榜单）",
+                 bg=BG_PANEL, fg=FG_DIM, font=(FONT, 9)).pack(anchor="w", padx=10, pady=(8, 4))
+        self.group_tree = self._tree(tab, [
+            ("rank", "名次", 60), ("group", "小组", 160),
+            ("add", "累计加分", 100), ("sub", "累计扣分", 100),
+            ("net", "净分", 90), ("count", "记录数", 90),
+        ])
 
     def _build_rewards(self):
         tab = tk.Frame(self.nb, bg=BG_PANEL)
@@ -241,6 +253,19 @@ class GrowthArchiveWindow:
             self.reward_tree.insert("", "end", values=(
                 r.get("ts", ""), r.get("name", ""), r.get("group", ""),
                 f"+{int(r.get('delta', 0))}", r.get("reason", ""), r.get("category", "其他")))
+
+        gagg = defaultdict(lambda: [0, 0, 0])
+        for r in store.group_points(cls):
+            delta = int(r.get("delta", 0))
+            item = gagg[r.get("group", "")]
+            item[0 if delta >= 0 else 1] += delta
+            item[2] += 1
+        self.group_tree.delete(*self.group_tree.get_children())
+        for i, (gname, (add, sub, cnt)) in enumerate(
+                sorted(gagg.items(), key=lambda kv: kv[1][0] + kv[1][1], reverse=True),
+                start=1):
+            self.group_tree.insert("", "end", values=(
+                i, gname, add, sub, add + sub, cnt))
 
         self.duty_tree.delete(*self.duty_tree.get_children())
         for r in sorted(duties, key=lambda x: x.get("ts", ""), reverse=True):

@@ -20,6 +20,7 @@ class ScoreScoringMixin:
         groups = self._groups()
 
         sids = list(target_students or [])
+        preset_groups = list(target_groups or [])
         if not sids:
             if target_groups:
                 for gname in target_groups:
@@ -30,23 +31,37 @@ class ScoreScoringMixin:
                 gname = self._pick_group("评价打分")
                 if not gname:
                     return
+                preset_groups = [gname]
                 sids = [s for s in groups[gname].get("members", []) if s in stu]
             else:
                 if not self._selected_or_warn():
                     return
                 sids = [s for s in sorted(self.selected_ids) if s in stu]
         sids = list(dict.fromkeys(sids))
-        if not sids:
+        is_group_view = bool(preset_groups)
+        if not sids and not groups:
             messagebox.showinfo("提示", "所选范围内没有学生", parent=self.win)
             return
 
         gmap = store.student_group_map(groups, stu)
-        win = self._dialog("评价打分", 560, 590)
+        win = self._dialog("评价打分", 560, 620)
         self._score_win = win
         tk.Label(win, text="评价打分", font=(FONT, 14, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 2))
-        tk.Label(win, text="积分记在每位学生名下，可只勾选本次涉及的学生",
-                 font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM).pack()
+        scope = tk.StringVar(value="group" if is_group_view else "person")
+        hint = tk.Label(win, text="", font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM)
+        hint.pack()
+
+        scope_row = tk.Frame(win, bg=BG_MAIN)
+        scope_row.pack(pady=(6, 2))
+        tk.Label(scope_row, text="记录到", font=(FONT, 10), bg=BG_MAIN,
+                 fg=FG_DIM).pack(side=tk.LEFT, padx=(0, 8))
+        for value, label in (("person", "个人"), ("group", "小组（小组专项分）")):
+            tk.Radiobutton(scope_row, text=label, value=value, variable=scope,
+                           font=(FONT, 10), bg=BG_MAIN, fg=FG_TEXT,
+                           selectcolor=BG_CELL, activebackground=BG_MAIN,
+                           activeforeground=FG_ACCENT, bd=0, highlightthickness=0,
+                           command=lambda: rebuild()).pack(side=tk.LEFT, padx=4)
 
         pick_body = tk.Frame(win, bg=BG_PANEL,
                              highlightbackground=BG_CELL, highlightthickness=1)
@@ -64,14 +79,11 @@ class ScoreScoringMixin:
                 lambda e: cv.yview_scroll(int(-e.delta / 120), "units"))
 
         vars_ = {}
-        for sid in sids:
-            info = stu[sid]
-            var = tk.BooleanVar(value=True)
-            vars_[sid] = var
-            gname = gmap.get(sid, "未分组")
-            base_text = f"{sid}  {info['name']}（{gname}）"
-            # indicatoron=False：整行就是勾选按钮，选中时整行蓝色高亮
-            cb = tk.Checkbutton(pick_inner, text="✔ " + base_text, variable=var,
+        group_vars = {}
+
+        def add_check(container, text, var, checked=True):
+            var.set(checked)
+            cb = tk.Checkbutton(container, text="✔ " + text, variable=var,
                                 font=(FONT, 10), bg=BG_PANEL, fg="#ffffff",
                                 activebackground=CHECK_BG, activeforeground="#ffffff",
                                 selectcolor=CHECK_BG, relief="flat", bd=0,
@@ -79,11 +91,42 @@ class ScoreScoringMixin:
                                 anchor="w", cursor="hand2", indicatoron=False)
             cb.pack(fill=tk.X, padx=6, pady=1)
 
-            def sync(w=cb, v=var, text=base_text):
+            def sync(w=cb, v=var, base=text):
                 on = v.get()
-                w.config(text=("✔ " if on else "   ") + text,
+                w.config(text=("✔ " if on else "   ") + base,
                          fg="#ffffff" if on else FG_DIM)
             var.trace_add("write", lambda *a, f=sync: f())
+
+        def rebuild():
+            for child in pick_inner.winfo_children():
+                child.destroy()
+            vars_.clear()
+            group_vars.clear()
+            if scope.get() == "group":
+                hint.config(text="小组专项分只记在小组名下，不计入任何学生个人积分")
+                if not groups:
+                    tk.Label(pick_inner, text="本班还没有小组，请先创建小组",
+                             font=(FONT, 10), bg=BG_PANEL, fg=FG_DIM).pack(
+                        pady=12, padx=12, anchor="w")
+                    return
+                for gname, group in groups.items():
+                    members = [s for s in group.get("members", []) if s in stu]
+                    var = tk.BooleanVar()
+                    group_vars[gname] = var
+                    add_check(pick_inner, f"{gname}（{len(members)}人）", var,
+                              checked=(not preset_groups) or gname in preset_groups)
+            else:
+                hint.config(text="积分记在每位学生名下，可只勾选本次涉及的学生")
+                for sid in sids:
+                    info = stu[sid]
+                    var = tk.BooleanVar()
+                    vars_[sid] = var
+                    gname = gmap.get(sid, "未分组")
+                    add_check(pick_inner, f"{sid}  {info['name']}（{gname}）", var)
+            pick_inner.update_idletasks()
+            cv.configure(scrollregion=cv.bbox("all"))
+
+        rebuild()
 
         form = tk.Frame(win, bg=BG_MAIN)
         form.pack(padx=24, pady=4, fill=tk.X)
@@ -126,11 +169,13 @@ class ScoreScoringMixin:
         err.pack()
 
         def submit():
-            chosen = [sid for sid in sids if vars_[sid].get()]
+            group_mode = scope.get() == "group"
+            chosen = [g for g in group_vars if group_vars[g].get()] if group_mode \
+                else [sid for sid in sids if vars_[sid].get()]
             reason = reason_box.get().strip()
             score_str = score_entry.get().strip()
             if not chosen:
-                err.config(text="请至少勾选一名学生")
+                err.config(text="请至少勾选一个小组" if group_mode else "请至少勾选一名学生")
                 return
             if not reason:
                 err.config(text="请填写理由")
@@ -157,22 +202,36 @@ class ScoreScoringMixin:
                     and reason not in custom_reasons():
                 add_custom_reason(reason)
 
-            count = store.add_point_records(self.all_students, self.group_data,
-                                            self.current_class, chosen, reason, delta)
+            if group_mode:
+                count = store.add_group_point_records(
+                    self.group_data, self.all_students, self.current_class,
+                    chosen, reason, delta)
+            else:
+                count = store.add_point_records(self.all_students, self.group_data,
+                                                self.current_class, chosen, reason, delta)
             self._save_all()
             now = time.strftime("%Y-%m-%d %H:%M:%S")
             log_lines = []
-            for sid in chosen:
-                info = stu.get(sid, {})
-                log_lines.append(
-                    f"{now} | {self.current_class} | {sid} {info.get('name', '')} | "
-                    f"{mode} {score} 分 | {reason} | 余额 {store.student_total(info)}")
+            if group_mode:
+                for gname in chosen:
+                    group = groups.get(gname, {})
+                    log_lines.append(
+                        f"{now} | {self.current_class} | 小组 {gname} | "
+                        f"{mode} {score} 分 | {reason} | 余额 "
+                        f"{store.group_own_total(group)}（小组专项）")
+            else:
+                for sid in chosen:
+                    info = stu.get(sid, {})
+                    log_lines.append(
+                        f"{now} | {self.current_class} | {sid} {info.get('name', '')} | "
+                        f"{mode} {score} 分 | {reason} | 余额 {store.student_total(info)}")
             self._log_ops(log_lines)
             win.destroy()
             self._score_win = None
             # 只刷新数字，不重建卡片：积分即时变化，不会闪屏
             self._refresh_scores()
-            self._set_status(f"已为 {count} 名学生{mode} {score} 分 · {reason}", FG_OK)
+            target = "个小组" if group_mode else "名学生"
+            self._set_status(f"已为 {count} {target}{mode} {score} 分 · {reason}", FG_OK)
 
         row = tk.Frame(win, bg=BG_MAIN)
         row.pack(pady=(6, 14))

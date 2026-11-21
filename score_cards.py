@@ -239,13 +239,15 @@ class ScoreCardsMixin:
         leader = group.get("leader", "")
         leader_text = f"{leader} {stu[leader]['name']}" if leader in stu else "未指定"
         total = store.group_total(group, stu)
+        own = store.group_own_total(group)
 
         win = self._dialog(f"小组详情 · {gname}", 680, 620)
         tk.Label(win, text=gname, font=(FONT, 16, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 2))
-        tk.Label(win, text=f"组长：{leader_text}    人数：{len(members)}    小组积分：{total} 分",
+        tk.Label(win, text=f"组长：{leader_text}    人数：{len(members)}    "
+                           f"小组积分：{total} 分（组员 {total - own} + 小组专项 {own}）",
                  font=(FONT, 10), bg=BG_MAIN, fg=FG_TEXT).pack()
-        tk.Label(win, text="积分记在个人名下，小组积分 = 组员积分之和",
+        tk.Label(win, text="组员积分记在个人名下；小组专项分只记在小组，统计时单列一类",
                  font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM).pack(pady=(2, 0))
 
         body = tk.Frame(win, bg=BG_PANEL)
@@ -259,6 +261,15 @@ class ScoreCardsMixin:
 
         if not members:
             txt.insert(tk.END, "（无成员）")
+        own_records = store.group_own_records(group)
+        if own_records:
+            txt.insert(tk.END, f"【小组专项】{own} 分（不摊到个人）\n")
+            for r in reversed(own_records):
+                sign = "+" if store.record_delta(r) >= 0 else "-"
+                txt.insert(tk.END,
+                           f"    {r.get('time', '')}    {sign}{abs(int(r.get('score', 0)))} 分"
+                           f"    {r.get('reason', '')}\n")
+            txt.insert(tk.END, "\n")
         for sid in members:
             info = stu[sid]
             mark = "（组长）" if sid == leader else ""
@@ -278,9 +289,13 @@ class ScoreCardsMixin:
         row = tk.Frame(win, bg=BG_MAIN)
         row.pack(fill=tk.X, padx=18, pady=12)
         if not self.readonly:
-            self._btn(row, "为本组学生打分",
-                      lambda: (win.destroy(), self._open_score(target_students=members)),
+            self._btn(row, "给小组记分",
+                      lambda: (win.destroy(),
+                               self._open_score(target_groups=[gname])),
                       primary=True).pack(side=tk.LEFT)
+            self._btn(row, "为本组学生打分",
+                      lambda: (win.destroy(), self._open_score(target_students=members))
+                      ).pack(side=tk.LEFT, padx=8)
         self._btn(row, "关闭", win.destroy).pack(side=tk.RIGHT)
 
     def _schedule_layout(self):

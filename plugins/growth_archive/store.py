@@ -97,6 +97,30 @@ def record_points(cls: str, sids: list, delta: int, reason: str):
     return count
 
 
+def record_group_points(cls: str, groups: list, delta: int, reason: str) -> int:
+    """把一次批量加减分拆成每个小组一条永久记录（小组专项，不计入个人）。"""
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    week = time.strftime("%G-W%V")
+    cat = category_of(reason)
+    count = 0
+    for gname in groups or []:
+        if not gname:
+            continue
+        _append("group_points.jsonl", {
+            "ts": now, "week": week, "cls": cls, "group": gname,
+            "delta": int(delta), "reason": reason, "category": cat,
+        })
+        count += 1
+    return count
+
+
+def group_points(cls: str | None = None) -> list:
+    rows = _read("group_points.jsonl")
+    if cls:
+        rows = [r for r in rows if r.get("cls") == cls]
+    return rows
+
+
 def _point_key(row: dict) -> tuple:
     return (row.get("sid", ""), row.get("ts", ""), row.get("reason", ""),
             int(row.get("delta", 0)))

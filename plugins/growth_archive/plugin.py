@@ -50,8 +50,21 @@ def _on_points_added(payload=None):
     payload = payload if isinstance(payload, dict) else {}
     cls = payload.get("cls") or payload.get("class") or ""
     sids = payload.get("sids") or []
+    gnames = payload.get("groups") or []
     delta = int(payload.get("delta") or 0)
     reason = payload.get("reason") or ""
+    if payload.get("scope") == "group" or (gnames and not sids):
+        store.record_group_points(cls, gnames, delta, reason)
+        if delta <= 0 or not gnames:
+            return
+        root = _root()
+        if root is None:
+            return
+        label = "、".join(gnames) if len(gnames) <= 4 \
+            else f"{'、'.join(gnames[:4])} 等 {len(gnames)} 个小组"
+        from . import reward_animation
+        reward_animation.show_rewards(root, [(label, delta, reason)])
+        return
     store.record_points(cls, sids, delta, reason)
     if delta <= 0:
         return

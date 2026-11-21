@@ -135,8 +135,19 @@ def group_legacy_total(group: dict) -> int:
     return sum(record_delta(r) for r in group.get("record", []) if isinstance(r, dict))
 
 
+def group_own_records(group: dict) -> list:
+    """直接记在“小组”名下的记录（不摊到个人）。"""
+    if not isinstance(group, dict):
+        return []
+    return [r for r in group.get("group_records", []) if isinstance(r, dict)]
+
+
+def group_own_total(group: dict) -> int:
+    return sum(record_delta(r) for r in group_own_records(group))
+
+
 def group_total(group: dict, stu: dict) -> int:
-    total = group_legacy_total(group)
+    total = group_legacy_total(group) + group_own_total(group)
     for sid in group.get("members", []):
         info = stu.get(sid)
         if info:
@@ -240,6 +251,46 @@ def add_point_records(students: dict, groups: dict, cls: str,
     return count
 
 
+def add_group_point_records(groups: dict, students: dict, cls: str,
+                            gnames: list, reason: str, delta: int) -> int:
+    """把加减分直接记在小组名下（不记到个人），返回实际写入的小组数。"""
+    class_groups = groups.setdefault(cls, {})
+    stu = students.get(cls, {})
+    now = time.strftime(TIME_FMT)
+    week = time.strftime("%G-W%V")
+    mode = "加分" if delta > 0 else "扣分"
+    score = abs(int(delta))
+    count = 0
+    for gname in gnames:
+        group = class_groups.get(gname)
+        if not isinstance(group, dict):
+            continue
+        if not isinstance(group.get("group_records"), list):
+            group["group_records"] = []
+        group["group_records"].append({
+            "operate": mode, "score": score, "reason": reason,
+            "time": now, "week": week,
+        })
+        group["total_score"] = group_total(group, stu)
+        count += 1
+    if count:
+        sync_group_totals(students, groups)
+        payload = {"cls": cls, "sids": [], "groups": list(gnames),
+                   "scope": "group", "delta": int(delta), "reason": reason}
+        try:
+            import plugin_events
+            plugin_events.emit("points_added", **payload)
+        except Exception:
+            pass
+        try:
+            import plugin_api
+            plugin_api.emit("points_added", payload)
+            plugin_api.emit("score_changed", payload)
+        except Exception:
+            pass
+    return count
+
+
 def iter_point_records(students: dict, groups: dict, cls: str):
     """遍历某班所有个人积分记录：yield (小组, 学号, 姓名, 记录)。"""
     stu = students.get(cls, {})
@@ -261,6 +312,19 @@ def points_group_rows(students: dict, groups: dict, cls: str) -> list:
         members = [s for s in group.get("members", []) if s in stu]
         rows.append((gname, len(members), group_total(group, stu)))
     rows.sort(key=lambda r: -r[2])
+    return rows
+
+
+def points_group_rows_detail(students: dict, groups: dict, cls: str) -> list:
+    """[(小组, 人数, 组员积分, 小组专项分, 合计)]，按合计排序。"""
+    stu = students.get(cls, {})
+    rows = []
+    for gname, group in groups.get(cls, {}).items():
+        members = [s for s in group.get("members", []) if s in stu]
+        own = group_own_total(group)
+        total = group_total(group, stu)
+        rows.append((gname, len(members), total - own, own, total))
+    rows.sort(key=lambda r: -r[4])
     return rows
 
 
@@ -432,7 +496,10 @@ def _write_detail_sheet(ws, title: str, period_text: str,
     row += 1
     ws.cell(row=row, column=1, value="小组统计").font = section_font
     row += 1
+    has_own = any("own" in item for item in group_rows)
     group_headers = ["班级", "小组", "人数", value_label, "人均"]
+    if has_own:
+        group_headers.append("其中小组专项")
     for col, text in enumerate(group_headers, start=1):
         cell = ws.cell(row=row, column=col, value=text)
         cell.font = head_font
@@ -442,6 +509,8 @@ def _write_detail_sheet(ws, title: str, period_text: str,
     for item in group_rows:
         avg = round(item["value"] / item["count"], 2) if item["count"] else 0
         values = [item["cls"], item["name"], item["count"], item["value"], avg]
+        if has_own:
+            values.append(item.get("own", 0))
         for col, value in enumerate(values, start=1):
             ws.cell(row=row, column=col, value=value)
         row += 1
@@ -503,6 +572,11 @@ def _update_total_sheet(wb, period_text: str, kind: str,
             continue
         append("小组", item["cls"], item["name"], item["name"],
                item["name"], item["value"])
+        # 小组专项单独记一类，累计里不与组员个人分混在一起
+        own = item.get("own", 0)
+        if own:
+            append("小组专项", item["cls"], item["name"], item["name"],
+                   item["name"], own)
 
 
 def _save_workbook(wb, path: Path) -> bool:
@@ -531,10 +605,11 @@ def _collect_points(students: dict, groups: dict):
                 "group": gmap.get(sid, "未分组"), "value": total,
                 "count": len(records),
             })
-        for gname, count, total in points_group_rows(students, groups, cls):
-            if count and total:
-                group_rows.append({"cls": cls, "name": gname,
-                                   "count": count, "value": total})
+        for gname, count, member, own, total in points_group_rows_detail(
+                students, groups, cls):
+            if total or own:
+                group_rows.append({"cls": cls, "name": gname, "count": count,
+                                   "value": total, "own": own})
     return person_rows, group_rows
 
 
@@ -648,7 +723,7 @@ def reset_points(period_dt: datetime) -> bool:
     students = load_students()
     groups = load_groups()
     if point_record_count(students) or any(
-            group.get("record")
+            group.get("record") or group.get("group_records")
             for class_groups in groups.values()
             for group in class_groups.values()):
         if not archive_points(students, groups, period_dt):
@@ -664,6 +739,7 @@ def reset_points(period_dt: datetime) -> bool:
         for group in class_groups.values():
             if isinstance(group, dict):
                 group["record"] = []
+                group["group_records"] = []
                 group["total_score"] = 0
     save_students(students)
     save_groups(groups)
