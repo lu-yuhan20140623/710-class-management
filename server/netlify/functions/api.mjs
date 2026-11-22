@@ -56,6 +56,66 @@ async function listJson(prefix) {
   return items;
 }
 
+// ---------------- Bug 反馈 ----------------
+// 提交：POST /api/bugs（公开）
+// 读取：GET /api/bugs（管理，一次性返回全部）
+// 修复：POST /api/bugs/:id/resolve（管理，汇报修复后自动删除记录）
+// 删除：DELETE /api/bugs/:id（管理，记录不存在时返回 deleted:false）
+// 管理接口需要请求头 X-Admin-Token（或 Authorization: Bearer）等于环境变量 BUG_ADMIN_TOKEN。
+function requireBugAdmin(req) {
+  const expected = process.env.BUG_ADMIN_TOKEN || "";
+  if (!expected) return { error: fail("未配置 BUG_ADMIN_TOKEN，Bug 管理接口暂不可用", 503) };
+  const header = req.headers.get("x-admin-token") || "";
+  const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (header !== expected && bearer !== expected) return { error: fail("未授权", 401) };
+  return {};
+}
+
+async function createBug(req) {
+  const body = await readJson(req);
+  if (!body) return fail("请求体不是合法 JSON");
+
+  const description = String(body.description || "").trim();
+  if (description.length < 5) return fail("问题描述至少 5 个字");
+  if (description.length > 2000) return fail("问题描述最多 2000 字");
+
+  const s = await store();
+  const id = newId();
+  const bug = {
+    id,
+    title: String(body.title || "").trim().slice(0, 80) || description.slice(0, 40),
+    description,
+    contact: String(body.contact || "").trim().slice(0, 100),
+    page: String(body.page || "").trim().slice(0, 200),
+    version: String(body.version || "").trim().slice(0, 40),
+    ua: String(req.headers.get("user-agent") || "").slice(0, 300),
+    createdAt: Date.now(),
+  };
+  await s.setJSON(`bug/${id}`, bug);
+  return json({ ok: true, id });
+}
+
+async function listBugs(req) {
+  const guard = requireBugAdmin(req);
+  if (guard.error) return guard.error;
+
+  const bugs = (await listJson("bug/"))
+    .map(({ data }) => data)
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return json({ ok: true, count: bugs.length, bugs });
+}
+
+async function deleteBug(req, id) {
+  const guard = requireBugAdmin(req);
+  if (guard.error) return guard.error;
+
+  const s = await store();
+  const key = `bug/${id}`;
+  const bug = await s.get(key, { type: "json" });
+  await s.delete(key);
+  return json({ ok: true, id, deleted: !!bug, notFound: !bug });
+}
+
 // ---------------- 设备 ----------------
 async function register(req) {
   const body = await readJson(req);
@@ -346,6 +406,14 @@ export default async function handler(req) {
 
     if (seg.length === 1 && seg[0] === "health") {
       return json({ ok: true, service: "class-schedule-relay", time: Date.now() });
+    }
+    if (seg[0] === "bugs") {
+      if (seg.length === 1 && method === "POST") return await createBug(req);
+      if (seg.length === 1 && method === "GET") return await listBugs(req);
+      if (seg.length === 2 && method === "DELETE") return await deleteBug(req, seg[1]);
+      if (seg.length === 3 && seg[2] === "resolve" && method === "POST") {
+        return await deleteBug(req, seg[1]);
+      }
     }
     if (seg.length === 1 && seg[0] === "register" && method === "POST") {
       return await register(req);

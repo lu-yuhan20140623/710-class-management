@@ -1,0 +1,19 @@
+{
+  "name": "课程表 · 手机网页版",
+  "short_name": "课程表",
+  "description": "无需安装 App，在 iPhone、鸿蒙或 Android 浏览器里查看班级课程表、小组积分和卫生扣分。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F5F6FA",
+  "theme_color": "#1B5E8C",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "../assets/app.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
