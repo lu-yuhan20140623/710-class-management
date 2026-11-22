@@ -207,21 +207,34 @@
 
   var params = new URLSearchParams(location.search);
 
+  // 版本列表由 /site-config 动态读取（改 update/latest.json 即可），这里保留静态兜底
   var VERSIONS = ["2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0",
     "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"];
   var versionOpts = document.getElementById("versionOpts");
-  VERSIONS.forEach(function(v){
-    var label = document.createElement("label");
-    label.className = "opt";
-    var input = document.createElement("input");
-    input.type = "checkbox";
-    input.name = "versions";
-    input.value = v;
-    if (params.get("v") === v) input.checked = true;
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(v));
-    versionOpts.appendChild(label);
-  });
+
+  function renderVersions(list){
+    versionOpts.innerHTML = "";
+    (list && list.length ? list : VERSIONS).forEach(function(v){
+      var label = document.createElement("label");
+      label.className = "opt";
+      var input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "versions";
+      input.value = v;
+      if (params.get("v") === v) input.checked = true;
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(v));
+      versionOpts.appendChild(label);
+    });
+  }
+  renderVersions(VERSIONS);
+
+  fetch("/site-config", { cache: "no-store" }).then(function(res){
+    return res.ok ? res.json() : null;
+  }).then(function(cfg){
+    var list = cfg && cfg.site && cfg.site.versions;
+    if (list && list.length && list.join(",") !== VERSIONS.join(",")) renderVersions(list);
+  }).catch(function(){});
 
   function checkedValues(name){
     return Array.prototype.slice.call(document.querySelectorAll('input[name="' + name + '"]:checked'))

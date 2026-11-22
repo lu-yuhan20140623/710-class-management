@@ -4,6 +4,14 @@
   "previous_version": "2.2.3",
   "exe_changed": true,
   "notes": "修复桌面悬浮球快捷面板失去焦点后不自动关闭；新增按小组打分（小组专项分，统计单列一类）；主界面可按学号/积分升降序排序，选组支持多选且不重复勾选；修复奖励动画重叠、文字互压、单一理由饼图不绘制、打分窗口按钮被裁切；云同步后端异常自动切 Gitee 中继，仅用 Gitee 通道时保持中继常驻。",
+  "site": {
+    "android_version": "1.2.0",
+    "apk": "downloads/ClassSchedule_Android_1.2.0.apk",
+    "setup_size": "42 MB",
+    "hero_badge": "支持加密云端同步",
+    "term": "2026–2027 第一学期",
+    "versions": ["2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0", "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"]
+  },
   "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.4",
   "renew": {
     "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.4/renew_2.2.3_to_2.2.4.zip",
