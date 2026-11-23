@@ -187,7 +187,7 @@ plugin_package.zip
 # 身份数据（含教师手机号、学生与值日生密钥）
 roles.json
 
-# 手机端工程构建产物
+# 手机端 / 一体机 / Kotlin 桌面版工程构建产物
 timetable/app/build/
 timetable/build/
 timetable/.gradle/
@@ -195,6 +195,14 @@ timetable/.idea/
 timetable/.platform/
 timetable/.kotlin/
 timetable/local.properties
+timetable/teacher/build/
+desktop-kotlin/build/
+desktop-kotlin/.gradle/
+desktop-kotlin/.idea/
+desktop-kotlin/local.properties
+
+# 云同步运行状态（含设备 ID，不入库）
+cloud_status.json
 
 # 官网后端（Netlify Functions）
 node_modules/

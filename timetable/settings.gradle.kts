@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "timetable"
-include(":app")
+include(":app", ":teacher")
