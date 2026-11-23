@@ -5,8 +5,13 @@
     ClassSchedule_Backend.exe    启动器（加载 app/backend_service.py，无控制台）
     ClassSchedule_Overlay.exe    启动器（加载 app/overlay_window.py，无控制台）
     ClassSchedule_Ball.exe       启动器（加载 app/floating_ball_service.py，无控制台）
+    _internal/                   四个 exe 共享的 Python 运行时与第三方依赖
     app/*.py                     业务代码，补丁可按文件替换
     version.json                 版本号 + 每个文件 sha256 + 整包哈希
+
+四个启动器改用 onedir 模式：每个 exe 只携带自己的启动字节码，
+Python 运行时、标准库和依赖统一放进 _internal/ 共享，避免 4 份
+onefile 各自重复打包同一套运行时，显著降低安装包体积。
 
 业务代码不打进 exe，因此修改代码后只需替换 app/ 下对应文件即可。
 四个 exe 均为窗口模式（--noconsole），启动器把 print 重定向到 logs/*.log。
@@ -24,6 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.resolve()
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
+RUNTIME_DIR = "_internal"
 
 CLEAN = "--clean" in sys.argv or "-c" in sys.argv
 
@@ -133,22 +139,29 @@ def collect_hidden_imports() -> list:
     return sorted(mods)
 
 
-def build_exe(exe_name: str, entry: str, noconsole: bool, hidden: list):
+def build_exe(exe_name: str, entry: str, noconsole: bool, hidden: list,
+              stage: Path):
     print(f"\n{'=' * 60}")
     print(f"打包 {exe_name}  ←  {entry}")
     print(f"{'=' * 60}")
     cmd = [
         sys.executable, "-m", "PyInstaller",
         f"--name={exe_name}",
-        "--onefile",
-        f"--distpath={DIST}",
-        f"--workpath={BUILD}",
+        "--onedir",
+        f"--distpath={stage}",
+        f"--workpath={BUILD / exe_name}",
         f"--specpath={BUILD}",
+        f"--contents-directory={RUNTIME_DIR}",
         "--noconfirm",
         "--collect-submodules=tkinter",
-        "--collect-submodules=openpyxl",
         # 云同步的 AES-GCM（OpenSSL 二进制由 PyInstaller 钩子收集）
         "--collect-submodules=cryptography",
+        # openpyxl 的可选加速依赖：缺了会自动回退到标准库，
+        # 但打进包里会多带 20+ MB 的 OpenBLAS 和 5 MB 的 lxml
+        "--exclude-module=numpy",
+        "--exclude-module=lxml",
+        # 皮肤图片只用 PNG/JPEG，不需要 AVIF 解码器
+        "--exclude-module=PIL._avif",
     ]
     if noconsole:
         cmd.append("--noconsole")
@@ -167,6 +180,13 @@ def build_exe(exe_name: str, entry: str, noconsole: bool, hidden: list):
     if r.returncode != 0:
         print(f"[失败] {exe_name}")
         sys.exit(1)
+
+    staged = stage / exe_name
+    shutil.copy2(staged / f"{exe_name}.exe", DIST / f"{exe_name}.exe")
+    runtime = DIST / RUNTIME_DIR
+    if not runtime.exists():
+        # 四个 exe 的入口字节码在各自 exe 内，运行时目录只需发布一份
+        shutil.copytree(staged / RUNTIME_DIR, runtime)
     print(f"[完成] {exe_name}")
 
 
@@ -179,10 +199,17 @@ def main():
 
     DIST.mkdir(parents=True, exist_ok=True)
     BUILD.mkdir(parents=True, exist_ok=True)
+    stage = BUILD / "onedir"
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    runtime = DIST / RUNTIME_DIR
+    if runtime.exists():
+        shutil.rmtree(runtime)
     hidden = collect_hidden_imports()
 
     for exe_name, entry, noconsole in SPECS:
-        build_exe(exe_name, entry, noconsole, hidden)
+        build_exe(exe_name, entry, noconsole, hidden, stage)
 
     # 发布业务代码
     app_dir = DIST / "app"
@@ -265,6 +292,8 @@ def main():
     for f in sorted(DIST.glob("*.exe")):
         mb = f.stat().st_size / 1024 / 1024
         print(f"  {f.name:30s} {mb:7.1f} MB")
+    runtime_size = sum(f.stat().st_size for f in runtime.rglob("*") if f.is_file())
+    print(f"  {RUNTIME_DIR + '/':30s} {runtime_size / 1024 / 1024:7.1f} MB (4 个 exe 共用)")
     print(f"  {'app/*.py':30s} {sum(i['size'] for i in files.values()) / 1024:7.1f} KB")
 
 

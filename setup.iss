@@ -45,11 +45,13 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 ;   Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Files]
-; 四个主 EXE（dist 目录里打出来的）
+; 四个主 EXE（onedir 启动器，本身很小）
 Source: "dist\{#MyAppExeName}";         DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyBackendName}";        DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyOverlayName}";        DestDir: "{app}"; Flags: ignoreversion
 Source: "dist\{#MyBallName}";           DestDir: "{app}"; Flags: ignoreversion
+; 四个 EXE 共用的 Python 运行时，只打包一份
+Source: "dist\_internal\*";             DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 业务代码与版本清单（补丁按 app/ 下的文件替换）
 Source: "dist\app\*.py";                DestDir: "{app}\app"; Flags: ignoreversion
 ; 插件目录：运行期自动扫描，可与第三方插件共存
@@ -74,7 +76,7 @@ Name: "startbackend"; Description: "启动后台服务（建议勾选）"; Group
 
 [Run]
 ; 安装完成后可选：启动后台服务（用户勾选 startbackend）
-Filename: "{app}\{#MyBackendName}"; Description: "启动后台服务"; Flags: nowait postinstall skipifsilent unchecked; OnlyBelowVersion: 0; Check: IsTaskSelected('startbackend')
+Filename: "{app}\{#MyBackendName}"; Description: "启动后台服务"; Flags: nowait postinstall skipifsilent unchecked; OnlyBelowVersion: 0; Check: WizardIsTaskSelected('startbackend')
 ; 启动主界面
 Filename: "{app}\{#MyAppExeName}"; Description: "打开课程表主界面"; Flags: nowait postinstall skipifsilent unchecked
 
