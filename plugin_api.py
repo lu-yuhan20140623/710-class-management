@@ -46,6 +46,11 @@ if getattr(sys, "frozen", False):
 else:
     APP_DIR = Path(__file__).parent.resolve()
 
+# 打包后业务代码在 app/ 下，sys.path 只含 app/ 不含程序根目录，
+# 导致 from plugins.role_portal import ... 找不到包；插件通过文件路径加载不受影响。
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+
 PLUGIN_DIR = APP_DIR / "plugins"
 PLUGIN_DATA_DIR = APP_DIR / "plugins_data"
 LOG_FILE = APP_DIR / "logs" / "plugins.log"

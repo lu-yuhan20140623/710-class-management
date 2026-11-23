@@ -126,6 +126,27 @@ def student_reset_with_phone(sid: str, phone: str, new_key: str) -> tuple[bool, 
     return student_set_key(sid, new_key)
 
 
+def rename_student(old_sid: str, new_sid: str) -> tuple[bool, str]:
+    """学号变更时迁移自定义密钥与值日生任命，避免登录身份丢失。"""
+    old, new = str(old_sid), str(new_sid)
+    if not old or not new or old == new:
+        return True, "无需迁移"
+    data = _load()
+    students = data.setdefault("students", {})
+    if new in students:
+        return False, "新学号已有自定义密钥，无法迁移"
+    if old in students:
+        students[new] = students.pop(old)
+    for duty in data.get("duties", []):
+        if str(duty.get("sid")) == old:
+            duty["sid"] = new
+    try:
+        _save(data)
+    except OSError as e:
+        return False, f"保存失败：{e}"
+    return True, "已迁移学生密钥与值日生任命"
+
+
 # ---------------- 值日生任命 ----------------
 def duties() -> list[dict]:
     return list(_load()["duties"])

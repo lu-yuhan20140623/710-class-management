@@ -129,7 +129,7 @@
 <main>
   <div class="wrap">
     <h1>Bug 反馈</h1>
-    <p class="lead">遇到问题请尽量描述清楚：在哪个端、做了什么操作、期望结果和实际结果。修复完成后会从待处理列表移除，并出现在下方历史反馈中。</p>
+    <p class="lead">遇到问题请尽量描述清楚：在哪个端、做了什么操作、期望结果和实际结果。所有反馈及处理状态都会展示在下方列表中。</p>
 
     <div class="card" id="formCard">
       <form id="bugForm" novalidate>
@@ -167,7 +167,7 @@
 
     <div class="card success" id="successCard">
       <h2>已收到，谢谢反馈</h2>
-      <p>修复完成后这条记录会自动删除，不需要你再操作。</p>
+      <p>这条反馈会保留在下方列表中，修复完成后状态会同步更新。</p>
       <p>反馈编号：<span class="bug-id" id="bugId"></span></p>
       <div class="actions">
         <button class="btn" type="button" id="againBtn">再提交一条</button>
@@ -180,7 +180,7 @@
 
     <section class="history" id="historySection">
       <div class="history-head">
-        <h2>历史反馈</h2>
+        <h2>反馈记录</h2>
         <span class="hint" id="historyCount"></span>
       </div>
       <div id="historyList"><div class="empty">加载中…</div></div>
@@ -208,7 +208,7 @@
   var params = new URLSearchParams(location.search);
 
   // 版本列表由 /site-config 动态读取（改 update/latest.json 即可），这里保留静态兜底
-  var VERSIONS = ["2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0",
+  var VERSIONS = ["2.2.5", "2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0",
     "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"];
   var versionOpts = document.getElementById("versionOpts");
 
@@ -324,6 +324,7 @@
   });
 
   var STATUS = {
+    open: { label: "待处理", cls: "planned" },
     fixed: { label: "已修复", cls: "fixed" },
     planned: { label: "计划修复中", cls: "planned" },
     wontfix: { label: "不予修复", cls: "wontfix" }
@@ -344,7 +345,7 @@
       var bugs = data.bugs || [];
       document.getElementById("historyCount").textContent = bugs.length ? "共 " + bugs.length + " 条" : "";
       if (!bugs.length){
-        list.innerHTML = '<div class="empty">还没有已处理的反馈</div>';
+        list.innerHTML = '<div class="empty">还没有反馈记录</div>';
         return;
       }
       list.innerHTML = bugs.map(function(b){

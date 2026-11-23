@@ -4,7 +4,7 @@
 //
 // POST   /api/bugs                 提交（公开）
 // GET    /api/bugs                 读取待处理全部（管理）；?all=1 含历史
-// GET    /api/bugs/history         公开历史，含状态，隐去联系方式
+// GET    /api/bugs/history         公开反馈记录（含待处理），含状态，隐去联系方式
 // POST   /api/bugs/:id/resolve     汇报修复/计划/不予修复，转入历史（管理）
 // DELETE /api/bugs/:id             物理删除，记录不存在时 deleted:false（管理）
 
@@ -109,7 +109,6 @@ async function list(request, env) {
 
 async function history(env) {
   const bugs = (await allBugs(env))
-    .filter((b) => b.status && b.status !== "open")
     .sort((a, b) => (b.resolvedAt || b.createdAt || 0) - (a.resolvedAt || a.createdAt || 0))
     .map((b) => ({
       id: b.id,

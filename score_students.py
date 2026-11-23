@@ -200,30 +200,64 @@ class ScoreStudentsMixin:
         sid = sorted(self.selected_ids)[0]
         stu = self.all_students[self.current_class][sid]
 
-        win = self._dialog("编辑学生资料", 360, 200)
+        win = self._dialog("编辑学生资料", 380, 230)
         tk.Label(win, text=f"{sid} · 编辑资料", font=(FONT, 13, "bold"),
-                 bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(18, 12))
+                 bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(16, 10))
         form = tk.Frame(win, bg=BG_MAIN)
         form.pack()
-        tk.Label(form, text="姓名", font=(FONT, 10), bg=BG_MAIN, fg=FG_DIM)\
+        tk.Label(form, text="学号", font=(FONT, 10), bg=BG_MAIN, fg=FG_DIM)\
             .grid(row=0, column=0, sticky="w", pady=6)
+        e_id = self._entry(form)
+        e_id.insert(0, sid)
+        e_id.grid(row=0, column=1, pady=6)
+        tk.Label(form, text="姓名", font=(FONT, 10), bg=BG_MAIN, fg=FG_DIM)\
+            .grid(row=1, column=0, sticky="w", pady=6)
         e_name = self._entry(form)
-        e_name.insert(0, stu["name"])
-        e_name.grid(row=0, column=1, pady=6)
-        e_name.focus_set()
+        e_name.insert(0, stu.get("name", ""))
+        e_name.grid(row=1, column=1, pady=6)
+        e_id.focus_set()
 
         def save():
+            new_id = e_id.get().strip()
             new_name = e_name.get().strip()
-            if not new_name:
-                messagebox.showwarning("提示", "姓名不能为空", parent=win)
+            if not new_id or not new_name:
+                messagebox.showwarning("提示", "学号和姓名不能为空", parent=win)
                 return
-            stu["name"] = new_name
+            students = self.all_students[self.current_class]
+            if new_id != sid and new_id in students:
+                messagebox.showerror("错误", "学号已存在", parent=win)
+                return
+            if new_id != sid and not messagebox.askyesno(
+                    "确认修改学号",
+                    f"将 {sid} 的学号改为 {new_id}？\n积分、小组、登录密钥会一起迁移。",
+                    parent=win):
+                return
+            record = students.pop(sid)
+            record["stu_id"] = new_id
+            record["name"] = new_name
+            students[new_id] = record
+            for group in self.group_data.get(self.current_class, {}).values():
+                group["members"] = [new_id if m == sid else m
+                                    for m in group.get("members", [])]
+                if group.get("leader") == sid:
+                    group["leader"] = new_id
+            if sid in self.selected_ids:
+                self.selected_ids.remove(sid)
+                self.selected_ids.add(new_id)
+            if new_id != sid:
+                try:
+                    import roles
+                    roles.rename_student(sid, new_id)
+                except Exception:
+                    pass
             self._save_all()
             win.destroy()
             self._render_cards()
+            self._center_on(new_id)
             self._set_status("学生资料已更新", FG_OK)
 
         row = tk.Frame(win, bg=BG_MAIN)
-        row.pack(pady=16)
+        row.pack(pady=(14, 16))
         self._btn(row, "保存", save, primary=True).pack(side=tk.LEFT, padx=6)
         self._btn(row, "取消", win.destroy).pack(side=tk.LEFT, padx=6)
+        win.bind("<Return>", lambda e: save())
