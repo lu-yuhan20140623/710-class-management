@@ -39,6 +39,8 @@ export async function onRequest() {
     site: {
       android_version: site.android_version || "",
       apk: site.apk || "",
+      android_pc_version: site.android_pc_version || "",
+      android_pc_apk: site.android_pc_apk || "",
       setup_size: site.setup_size || "",
       hero_badge: site.hero_badge || "",
       term: site.term || "",
