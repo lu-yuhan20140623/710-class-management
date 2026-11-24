@@ -75,39 +75,7 @@ def _find_student(sid: str) -> tuple[str, str]:
 
 
 # ===================== 触摸键盘 =====================
-_touch_keyboard_checked = False
-_touch_keyboard_needed = False
-
-
-def _need_touch_keyboard() -> bool:
-    """仅在支持触摸且没有物理键盘（或处于平板模式）的 Windows 设备上弹出屏幕键盘。"""
-    global _touch_keyboard_checked, _touch_keyboard_needed
-    if _touch_keyboard_checked:
-        return _touch_keyboard_needed
-    _touch_keyboard_checked = True
-    if sys.platform != "win32":
-        return False
-    try:
-        import ctypes
-        user32 = ctypes.windll.user32
-        touch_capable = bool(user32.GetSystemMetrics(94))      # SM_DIGITIZER
-        no_keyboard = user32.GetKeyboardType(0) == 0
-        slate_mode = user32.GetSystemMetrics(0x2003) == 0      # SM_CONVERTIBLESLATEMODE
-        _touch_keyboard_needed = touch_capable and (no_keyboard or slate_mode)
-    except Exception:
-        _touch_keyboard_needed = False
-    return _touch_keyboard_needed
-
-
-def _show_touch_keyboard(_event=None):
-    if not _need_touch_keyboard():
-        return
-    try:
-        import subprocess
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.Popen(["osk.exe"], creationflags=flags)
-    except Exception:
-        pass
+from touch_keyboard import bind_touch_keyboard, show_touch_keyboard as _show_touch_keyboard
 
 
 # ===================== 通用小对话框 =====================

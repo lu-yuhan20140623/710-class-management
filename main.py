@@ -12,6 +12,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
 # PyInstaller 打包后 Windows 默认 stdout 是 gbk，emoji print 会炸
@@ -168,6 +169,11 @@ def _show_update_error(root, msg: str, release_url: str):
 
 
 def main():
+    try:
+        import touch_keyboard
+        touch_keyboard.install_global()
+    except Exception:
+        pass
     if _handle_cli():
         return
     # 0. 单实例：已有主界面在运行时，把它带到前台后退出
@@ -297,6 +303,30 @@ def main():
             print(f"[课程表] 卫生扣分日报展示失败：{e}")
 
     root.after(600, _show_hygiene_report)
+
+    # 6b. 每天首次启动：自动弹出小组积分统计图
+    def _show_boot_chart():
+        try:
+            import charts
+            import score_records as store
+            students = store.load_students()
+            groups = store.load_groups()
+            rows = []
+            for cls in sorted(set(students) | set(groups)):
+                for gname, _count, total in store.points_group_rows(students, groups, cls):
+                    rows.append((f"{cls}-{gname}", max(0, total), max(0, -total)))
+            if not any(a or b for _, a, b in rows):
+                return
+            win = tk.Toplevel(root)
+            win.title(f"小组积分统计 · {datetime.now().strftime('%m-%d')}")
+            win.configure(bg="#2a2a3a")
+            win.geometry("780x520")
+            win.transient(root)
+            charts.bar_chart(win, rows, width=740).pack(fill=tk.BOTH, expand=True)
+        except Exception as e:
+            print(f"[课程表] 开机统计图展示失败：{e}")
+
+    root.after(1200, _show_boot_chart)
 
     # 7. 自动更新：后台下载完成后静默应用并重启；失败则提示重试或手动下载
     if update_error:

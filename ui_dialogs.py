@@ -8,6 +8,7 @@ from tkinter import messagebox, simpledialog, ttk
 import auth
 import autostart
 import schedule_core as sch
+from touch_keyboard import bind_touch_keyboard
 from ui_theme import (
     BG_CELL, BG_CELL_ALT, BG_COUNTING, BG_DANGER, BG_IN_CLASS, BG_MAIN,
     BG_PANEL, BG_PREBELL, FG_ACCENT, FG_DANGER, FG_DIM, FG_OK, FG_TEXT, FG_WARN,

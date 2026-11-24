@@ -122,12 +122,19 @@ class ScoreReportsMixin:
 
         def collect():
             week_data = defaultdict(lambda: {"add": 0, "sub": 0})
-            for _gname, _sid, _name, r in self._iter_records():
+
+            def add_record(r):
                 d = week_data[r.get("week", "未知")]
                 if store.record_delta(r) >= 0:
                     d["add"] += abs(int(r.get("score", 0)))
                 else:
                     d["sub"] += abs(int(r.get("score", 0)))
+
+            for _gname, _sid, _name, r in self._iter_records():
+                add_record(r)
+            for _gname, group in self._groups().items():
+                for r in store.group_own_records(group):
+                    add_record(r)
             return [(w, d["add"], d["sub"]) for w, d in sorted(week_data.items())]
 
         rows = collect()
@@ -161,6 +168,11 @@ class ScoreReportsMixin:
                             add += abs(int(r.get("score", 0)))
                         else:
                             sub += abs(int(r.get("score", 0)))
+                for r in store.group_own_records(group):
+                    if store.record_delta(r) >= 0:
+                        add += abs(int(r.get("score", 0)))
+                    else:
+                        sub += abs(int(r.get("score", 0)))
                 rows.append((gname, add, sub))
             # 净得分高的排在上面，更直观
             rows.sort(key=lambda x: -(x[1] - x[2]))
@@ -183,6 +195,9 @@ class ScoreReportsMixin:
             counter = defaultdict(int)
             for _gname, _sid, _name, r in self._iter_records():
                 counter[r.get("reason", "未填写")] += 1
+            for _gname, group in self._groups().items():
+                for r in store.group_own_records(group):
+                    counter[r.get("reason", "未填写")] += 1
             return sorted(counter.items(), key=lambda kv: -kv[1])
 
         if not collect():

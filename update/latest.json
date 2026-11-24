@@ -1,9 +1,9 @@
 {
-  "version": "2.2.5",
-  "published_at": "2026-11-23",
-  "previous_version": "2.2.4",
+  "version": "2.2.6",
+  "published_at": "2026-11-25",
+  "previous_version": "2.2.5",
   "exe_changed": true,
-  "notes": "修复打包后学生端因 plugins.role_portal 模块缺失启动失败；编辑学生资料现在可以修改学号并同步保留积分/小组/密钥；修复公开反馈历史不显示未处理记录；触摸设备输入密钥时自动弹出屏幕键盘；修复提交成功页“记录会自动删除”的错误文案并改为反馈记录列表。",
+  "notes": "修复开机不自动弹统计图：每天首次启动自动展示小组积分统计图；修复软键盘不弹出：全局注入屏幕键盘支持，覆盖所有输入界面并放宽触摸检测条件；修复统计图未统计小组专项分：周度图、小组对比图、理由饼图均纳入小组分。",
   "site": {
     "android_version": "1.2.0",
     "apk": "downloads/ClassSchedule_Android_1.2.0.apk",
@@ -12,16 +12,16 @@
     "setup_size": "17 MB",
     "hero_badge": "支持加密云端同步",
     "term": "2026–2027 第一学期",
-    "versions": ["2.2.5", "2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0", "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"]
+    "versions": ["2.2.6", "2.2.5", "2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0", "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"]
   },
-  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.5",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.2.6",
   "renew": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.5/renew_2.2.4_to_2.2.5.zip",
-    "sha256": "e74a8c605b4a086bc29e050244842fb7e1ca816c58172f9a5f40bd34e2a1fe49"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.6/renew_2.2.5_to_2.2.6.zip",
+    "sha256": "8ce2b6bbd739d1adb9250be6c3543cbd3ed7fed9888e38cfb84e5cc535e37d8a"
   },
   "setup": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.5/ClassSchedule_Setup_2.2.5.exe",
-    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.2.5/ClassSchedule_Setup_2.2.5.exe",
-    "sha256": "5c13b92a018cdd7fe94d0a44e7db7f7335c02c5c5f458e8ac761729aacd118af"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.2.6/ClassSchedule_Setup_2.2.6.exe",
+    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.2.6/ClassSchedule_Setup_2.2.6.exe",
+    "sha256": "d97b0ac5c840ddd3f298fbce780832f9f6abe0c573a011e2160f2789d219a35f"
   }
 }

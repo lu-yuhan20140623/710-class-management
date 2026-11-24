@@ -7,6 +7,7 @@ from score_data import (
     WEEKLY_ARCHIVE, _save_json,
 )
 from ui import BG_CELL, BG_MAIN, FG_ACCENT, FG_DANGER, FG_DIM, FG_OK, FG_TEXT, FG_WARN, center_window
+from touch_keyboard import bind_touch_keyboard
 
 
 class ScoreStudentsMixin:
@@ -76,8 +77,8 @@ class ScoreStudentsMixin:
         return win
 
     def _entry(self, parent, width=18):
-        return tk.Entry(parent, width=width, font=(FONT, 11), bg=BG_CELL,
-                        fg=FG_TEXT, insertbackground=FG_TEXT, relief=tk.FLAT)
+        return bind_touch_keyboard(tk.Entry(parent, width=width, font=(FONT, 11), bg=BG_CELL,
+                        fg=FG_TEXT, insertbackground=FG_TEXT, relief=tk.FLAT))
 
     def _hint(self, parent, text):
         return tk.Label(parent, text=text, font=(FONT, 9), bg=BG_MAIN,
