@@ -90,6 +90,19 @@ def main():
         import traceback
         log("插件加载失败：" + traceback.format_exc())
 
+    def _sync_plugin_states():
+        """主界面随时启停插件，悬浮球这边定时跟进（开关写在共享配置文件里）。"""
+        try:
+            if "plugin_api" not in globals():
+                return
+            plugin_api.refresh_enabled_states()
+        except Exception:
+            import traceback
+            log("插件开关同步失败：" + traceback.format_exc())
+        root.after(2000, _sync_plugin_states)
+
+    root.after(2000, _sync_plugin_states)
+
     def on_close():
         log("悬浮球窗口被关闭，进程退出（后台服务会自动重新拉起）")
         try:

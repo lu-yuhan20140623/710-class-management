@@ -91,7 +91,7 @@ def record_points(cls: str, sids: list, delta: int, reason: str):
         _append("points.jsonl", {
             "ts": now, "week": week, "cls": cls, "sid": sid,
             "name": info.get("name", ""), "group": gmap.get(sid, "未分组"),
-            "delta": int(delta), "reason": reason, "category": cat,
+            "delta": store.as_number(delta), "reason": reason, "category": cat,
         })
         count += 1
     return count
@@ -108,7 +108,7 @@ def record_group_points(cls: str, groups: list, delta: int, reason: str) -> int:
             continue
         _append("group_points.jsonl", {
             "ts": now, "week": week, "cls": cls, "group": gname,
-            "delta": int(delta), "reason": reason, "category": cat,
+            "delta": store.as_number(delta), "reason": reason, "category": cat,
         })
         count += 1
     return count
@@ -123,7 +123,7 @@ def group_points(cls: str | None = None) -> list:
 
 def _point_key(row: dict) -> tuple:
     return (row.get("sid", ""), row.get("ts", ""), row.get("reason", ""),
-            int(row.get("delta", 0)))
+            store.as_number(row.get("delta", 0)))
 
 
 def seed_from_students() -> int:

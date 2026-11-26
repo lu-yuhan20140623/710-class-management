@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from tkinter import ttk, messagebox
 
 import charts
+from score_records import fmt_delta
 from ui import (
     BG_MAIN, BG_PANEL, BG_CELL, BG_CELL_ALT, BG_IN_CLASS,
     FG_TEXT, FG_DIM, FG_ACCENT, FG_WARN, FG_DANGER, FG_OK,
@@ -285,7 +286,7 @@ class ScoreCenterWindow:
         summary = tk.Frame(parent, bg=BG_PANEL)
         summary.pack(fill=tk.X, padx=18, pady=(6, 0))
         for label, value, color in (
-                ("区间净得分", f"{total:+d}", FG_OK if total >= 0 else FG_DANGER),
+                ("区间净得分", fmt_delta(total), FG_OK if total >= 0 else FG_DANGER),
                 ("有记录天数", f"{positive} 天", FG_ACCENT),
                 ("日均", f"{total / max(1, len(points)):+.1f}", FG_WARN)):
             cell = tk.Frame(summary, bg=BG_CELL)
@@ -375,7 +376,7 @@ class ScoreCenterWindow:
                                fill=color, outline=BG_PANEL)
             if len(values) <= 14:
                 canvas.create_text(x, y - int(12 * k),
-                                   text=f"{val:+d}", font=(FONT, 8), fill=color)
+                                   text=fmt_delta(val), font=(FONT, 8), fill=color)
 
         # X 轴日期
         step = max(1, len(points) // 8)
@@ -565,7 +566,7 @@ class ScoreCenterWindow:
                          fg=color).pack(side=tk.LEFT)
                 tk.Label(line, text=str(name), font=(FONT, 11, "bold"), bg=BG_CELL,
                          fg=FG_TEXT).pack(side=tk.LEFT, padx=6)
-                tk.Label(line, text=f"{value:+d} 分" if value >= 0 else f"{value} 分",
+                tk.Label(line, text=f"{fmt_delta(value)} 分",
                          font=(FONT, 10, "bold"), bg=BG_CELL,
                          fg=FG_OK if value >= 0 else FG_DANGER)\
                     .pack(side=tk.RIGHT)
@@ -673,7 +674,7 @@ class ScoreCenterWindow:
             delta = self.data.delta(rec)
             tree.insert("", tk.END, iid=f"{sid}|{idx}", values=(
                 rec.get("time", ""), f"{sid} {info.get('name', '')}",
-                gmap.get(sid, "未分组"), f"{delta:+d}",
+                gmap.get(sid, "未分组"), fmt_delta(delta),
                 rec.get("reason", ""), self.data.record_week(rec)))
 
     def _selected_records(self):
@@ -689,7 +690,7 @@ class ScoreCenterWindow:
                 continue
             items.append((sid, rec))
             labels.append(f"{sid} {stu.get(sid, {}).get('name', '')}  "
-                          f"{self.data.delta(rec):+d} 分 · {rec.get('reason', '')}")
+                          f"{fmt_delta(self.data.delta(rec))} 分 · {rec.get('reason', '')}")
         return items, labels
 
     def _undo_selected(self):

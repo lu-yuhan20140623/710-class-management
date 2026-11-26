@@ -312,9 +312,9 @@ class ScoreCardsMixin:
         if own_records:
             txt.insert(tk.END, f"【小组专项】{own} 分（不摊到个人）\n")
             for r in reversed(own_records):
-                sign = "+" if store.record_delta(r) >= 0 else "-"
                 txt.insert(tk.END,
-                           f"    {r.get('time', '')}    {sign}{abs(int(r.get('score', 0)))} 分"
+                           f"    {r.get('time', '')}    "
+                           f"{store.fmt_delta(store.record_delta(r))} 分"
                            f"    {r.get('reason', '')}\n")
             txt.insert(tk.END, "\n")
         for sid in members:
@@ -326,9 +326,9 @@ class ScoreCardsMixin:
             if not records:
                 txt.insert(tk.END, "    （暂无记录）\n")
             for r in reversed(records):
-                sign = "+" if store.record_delta(r) >= 0 else "-"
                 txt.insert(tk.END,
-                           f"    {r.get('time', '')}    {sign}{abs(int(r.get('score', 0)))} 分"
+                           f"    {r.get('time', '')}    "
+                           f"{store.fmt_delta(store.record_delta(r))} 分"
                            f"    {r.get('reason', '')}\n")
             txt.insert(tk.END, "\n")
         txt.config(state=tk.DISABLED)

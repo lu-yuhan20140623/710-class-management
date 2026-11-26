@@ -20,6 +20,7 @@
         ctx.ball.add_menu("快捷点名", quick_call)
         ctx.ball.register_skin("默认头像", image_path, default=True)
         ctx.events.on("score_changed", on_score_changed)
+        ctx.scores.set_parser(parse_decimal)   # 可选：改写分值录入规则
 
 设计要点（保证与别的插件兼容）：
 - 每个插件注册时拿到的都是同一个 ctx，各自的异常会被捕获，不会影响其他插件
@@ -53,6 +54,7 @@ if str(APP_DIR) not in sys.path:
 
 PLUGIN_DIR = APP_DIR / "plugins"
 PLUGIN_DATA_DIR = APP_DIR / "plugins_data"
+ENABLED_FILE = PLUGIN_DATA_DIR / "enabled.json"
 LOG_FILE = APP_DIR / "logs" / "plugins.log"
 
 
@@ -87,6 +89,74 @@ def _save_json(path: Path, data):
     except OSError as exc:
         _log(f"写入 {path.name} 失败：{exc}")
         return False
+
+
+def _load_enabled() -> dict:
+    """插件开关：未记录的插件默认启用，保证老插件升级后照常工作。"""
+    data = _load_json(ENABLED_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _store_enabled(plugin_id: str, enabled: bool) -> bool:
+    data = _load_enabled()
+    data[str(plugin_id)] = bool(enabled)
+    return _save_json(ENABLED_FILE, data)
+
+
+# ===================== 分值解析（插件可覆盖） =====================
+def _parse_int_score(text: str):
+    try:
+        return int(str(text).strip()), ""
+    except (TypeError, ValueError):
+        return None, "分值必须是整数（正数加分，负数扣分）"
+
+
+class ScoreBridge:
+    """默认只允许整数；插件可注册自己的解析器（例如支持小数）。"""
+
+    def __init__(self, manager):
+        self.manager = manager
+        self._parsers: list[dict] = []
+        self._hints: list[dict] = []
+
+    def set_parser(self, parser, order: int = 100, owner: str | None = None):
+        if not callable(parser):
+            raise TypeError("分值解析器必须是可调用对象")
+        self._parsers = [p for p in self._parsers if p["owner"] != owner]
+        self._parsers.append({"parser": parser, "order": order, "owner": owner})
+        self._parsers.sort(key=lambda p: (p["order"], p["owner"] or ""))
+
+    def set_hint(self, text: str, owner: str | None = None):
+        self._hints = [h for h in self._hints if h["owner"] != owner]
+        self._hints.append({"text": str(text), "owner": owner})
+
+    def parse(self, text) -> tuple:
+        """返回 (分值, 错误提示)；成功时错误提示为空字符串。"""
+        for item in list(self._parsers):
+            if not self.manager.is_enabled(item["owner"]):
+                continue
+            try:
+                result = item["parser"](text)
+            except Exception:
+                _log(f"分值解析器异常：\n{traceback.format_exc()}")
+                continue
+            if isinstance(result, tuple) and len(result) == 2:
+                value, error = result
+                if error:
+                    return None, str(error)
+                if value is not None:
+                    return value, ""
+            elif result is not None:
+                return result, ""
+        return _parse_int_score(text)
+
+    def hint(self) -> str:
+        return "；".join(h["text"] for h in self._hints
+                        if self.manager.is_enabled(h["owner"]))
+
+    def remove_owner(self, owner: str):
+        self._parsers = [p for p in self._parsers if p["owner"] != owner]
+        self._hints = [h for h in self._hints if h["owner"] != owner]
 
 
 # ===================== 事件总线 =====================
@@ -414,11 +484,15 @@ class ScoreWindowAPI:
 
 # ===================== UI 注册桥 =====================
 class UIBridge:
-    def __init__(self, app=None):
+    def __init__(self, app=None, manager=None):
         self.app = app
+        self.manager = manager
         self._main_menus: list[dict] = []
         self._score_menus: list[dict] = []
         self._top_buttons: list[dict] = []
+
+    def _active(self, item: dict) -> bool:
+        return self.manager is None or self.manager.is_enabled(item.get("owner"))
 
     def _host(self):
         """宿主界面对象：优先 ScheduleUI 实例（可能是 root._schedule_ui），否则退回 app。"""
@@ -430,23 +504,28 @@ class UIBridge:
         return getattr(app, "_schedule_ui", app)
 
     # ---- 主界面 ----
-    def add_main_menu(self, label: str, callback, order: int = 100):
-        self._main_menus.append({"label": label, "callback": callback, "order": order})
+    def add_main_menu(self, label: str, callback, order: int = 100,
+                      owner: str | None = None):
+        self._main_menus.append({"label": label, "callback": callback,
+                                 "order": order, "owner": owner})
         self._sort(self._main_menus)
 
     def main_menu_items(self) -> list:
-        return [(i["label"], i["callback"]) for i in self._main_menus]
+        return [(i["label"], i["callback"]) for i in self._main_menus
+                if self._active(i)]
 
     # ---- 学生积分窗口 ----
     def add_score_menu(self, label: str, callback, order: int = 100,
-                       readonly_ok: bool = True):
+                       readonly_ok: bool = True, owner: str | None = None):
         self._score_menus.append({"label": label, "callback": callback,
-                                  "order": order, "readonly_ok": readonly_ok})
+                                  "order": order, "readonly_ok": readonly_ok,
+                                  "owner": owner})
         self._sort(self._score_menus)
 
     def score_menu_items(self, readonly: bool = False) -> list:
         return [(i["label"], i["callback"]) for i in self._score_menus
-                if (not readonly) or i.get("readonly_ok", True)]
+                if self._active(i) and
+                ((not readonly) or i.get("readonly_ok", True))]
 
     def get_score_window_api(self):
         try:
@@ -464,13 +543,21 @@ class UIBridge:
         return None
 
     # ---- 顶部按钮 ----
-    def add_top_button(self, text: str, callback, order: int = 100):
-        self._top_buttons.append({"text": text, "callback": callback, "order": order})
+    def add_top_button(self, text: str, callback, order: int = 100,
+                       owner: str | None = None):
+        self._top_buttons.append({"text": text, "callback": callback,
+                                  "order": order, "owner": owner})
         self._sort(self._top_buttons)
         self._refresh_top_buttons()
 
     def top_button_items(self) -> list:
-        return [(i["text"], i["callback"]) for i in self._top_buttons]
+        return [(i["text"], i["callback"]) for i in self._top_buttons
+                if self._active(i)]
+
+    def remove_owner(self, owner: str):
+        for items in (self._main_menus, self._score_menus, self._top_buttons):
+            items[:] = [i for i in items if i.get("owner") != owner]
+        self._refresh_top_buttons()
 
     def _refresh_top_buttons(self):
         host = self._host()
@@ -505,55 +592,72 @@ class UIBridge:
 
 # ===================== 悬浮球注册桥 =====================
 class BallBridge:
-    def __init__(self, ball=None):
+    def __init__(self, ball=None, manager=None):
         self._ball = ball
+        self.manager = manager
         self._menu_items: list[dict] = []
         self._skins: list[dict] = []
-        self._click_action = None
-        self._pending: list[tuple] = []
+        self._click_actions: list[dict] = []
 
     @property
     def available(self) -> bool:
         return self._ball is not None
 
+    def _active(self, item: dict) -> bool:
+        return self.manager is None or self.manager.is_enabled(item.get("owner"))
+
     def attach(self, ball):
         self._ball = ball
-        if ball is None:
-            return
-        for kind, payload in self._pending:
-            try:
-                if kind == "menu":
-                    ball.add_plugin_menu(*payload)
-                elif kind == "skin":
-                    ball.register_image_skin(*payload)
-            except Exception:
-                _log(f"悬浮球注册失败：\n{traceback.format_exc()}")
-        self._pending.clear()
-        if self._click_action is not None:
-            ball.set_click_action(self._click_action)
+        self._sync_ball()
 
-    def add_menu(self, label: str, callback, order: int = 100):
-        item = (label, callback, order)
-        self._menu_items.append(item)
-        self._menu_items.sort(key=lambda i: (i[2], i[0]))
-        if self._ball is not None:
-            self._ball.add_plugin_menu(*item)
-        else:
-            self._pending.append(("menu", item))
+    def _sync_ball(self):
+        """按当前启用状态重建悬浮球菜单 / 皮肤 / 单击动作。"""
+        if self._ball is None:
+            return
+        try:
+            clear = getattr(self._ball, "clear_plugin_items", None)
+            if clear is not None:
+                clear()
+            for item in self._menu_items:
+                if self._active(item):
+                    self._ball.add_plugin_menu(item["label"], item["callback"],
+                                               item["order"])
+            for skin in self._skins:
+                if self._active(skin):
+                    self._ball.register_image_skin(
+                        skin["name"], skin["path"], skin["default"], skin["order"])
+            actions = [a for a in self._click_actions if self._active(a)]
+            self._ball.set_click_action(actions[-1]["callback"] if actions else None)
+        except Exception:
+            _log(f"同步悬浮球插件项失败：\n{traceback.format_exc()}")
+
+    def add_menu(self, label: str, callback, order: int = 100,
+                 owner: str | None = None):
+        self._menu_items.append({"label": label, "callback": callback,
+                                 "order": order, "owner": owner})
+        self._menu_items.sort(key=lambda i: (i["order"], i["label"]))
+        self._sync_ball()
 
     def register_skin(self, name: str, image_path, default: bool = False,
-                      order: int = 100):
-        payload = (name, str(image_path), default, order)
-        self._skins.append(payload)
-        if self._ball is not None:
-            self._ball.register_image_skin(*payload)
-        else:
-            self._pending.append(("skin", payload))
+                      order: int = 100, owner: str | None = None):
+        self._skins = [s for s in self._skins if s["name"] != name]
+        self._skins.append({"name": str(name), "path": str(image_path),
+                            "default": default, "order": order, "owner": owner})
+        self._sync_ball()
 
-    def set_click_action(self, callback):
-        self._click_action = callback
-        if self._ball is not None:
-            self._ball.set_click_action(callback)
+    def set_click_action(self, callback, owner: str | None = None):
+        self._click_actions = [a for a in self._click_actions
+                               if a["owner"] != owner]
+        if callback is not None:
+            self._click_actions.append({"callback": callback, "owner": owner})
+        self._sync_ball()
+
+    def remove_owner(self, owner: str):
+        self._menu_items = [i for i in self._menu_items if i.get("owner") != owner]
+        self._skins = [s for s in self._skins if s.get("owner") != owner]
+        self._click_actions = [a for a in self._click_actions
+                               if a.get("owner") != owner]
+        self._sync_ball()
 
     def position(self):
         """悬浮球当前屏幕坐标 (x, y, size)；无球时返回 None。"""
@@ -584,6 +688,75 @@ class BallBridge:
         return None
 
 
+# ===================== 插件作用域代理 =====================
+class _ScopedProxy:
+    """把插件注册项自动打上归属标记，禁用时可精确移除。"""
+
+    def __init__(self, target, owner):
+        self._target = target
+        self._owner = owner
+
+    def __getattr__(self, name):
+        return getattr(self._target, name)
+
+
+class ScopedUI(_ScopedProxy):
+    def add_main_menu(self, label, callback, order=100):
+        return self._target.add_main_menu(label, callback, order, self._owner)
+
+    def add_score_menu(self, label, callback, order=100, readonly_ok=True):
+        return self._target.add_score_menu(label, callback, order,
+                                           readonly_ok, self._owner)
+
+    def add_top_button(self, text, callback, order=100):
+        return self._target.add_top_button(text, callback, order, self._owner)
+
+
+class ScopedBall(_ScopedProxy):
+    def add_menu(self, label, callback, order=100):
+        return self._target.add_menu(label, callback, order, self._owner)
+
+    def register_skin(self, name, image_path, default=False, order=100):
+        return self._target.register_skin(name, image_path, default,
+                                          order, self._owner)
+
+    def set_click_action(self, callback):
+        return self._target.set_click_action(callback, self._owner)
+
+
+class ScopedScores(_ScopedProxy):
+    def set_parser(self, parser, order=100):
+        return self._target.set_parser(parser, order, self._owner)
+
+    def set_hint(self, text):
+        return self._target.set_hint(text, self._owner)
+
+
+class ScopedEvents(_ScopedProxy):
+    def __init__(self, target, owner):
+        super().__init__(target, owner)
+        self._subs: list[tuple] = []
+
+    def on(self, event, callback):
+        self._subs.append((event, callback))
+        return self._target.on(event, callback)
+
+    def off(self, event, callback):
+        try:
+            self._subs.remove((event, callback))
+        except ValueError:
+            pass
+        return self._target.off(event, callback)
+
+    def emit(self, event, payload=None):
+        return self._target.emit(event, payload)
+
+    def detach(self):
+        for event, callback in list(self._subs):
+            self._target.off(event, callback)
+        self._subs.clear()
+
+
 # ===================== 插件上下文 =====================
 class PluginContext:
     def __init__(self, manager, plugin_id, manifest, module):
@@ -594,9 +767,10 @@ class PluginContext:
         self.app = manager.app
         self.backend = manager.backend
         self.data = manager.data
-        self.ui = manager.ui
-        self.ball = manager.ball
-        self.events = manager.events
+        self.ui = ScopedUI(manager.ui, plugin_id)
+        self.ball = ScopedBall(manager.ball, plugin_id)
+        self.events = ScopedEvents(manager.events, plugin_id)
+        self.scores = ScopedScores(manager.scores, plugin_id)
         self.settings = PluginSettings(plugin_id)
         self.api_version = API_VERSION
 
@@ -612,6 +786,13 @@ class PluginContext:
 
     def log(self, message: str):
         _log(f"[{self.id}] {message}")
+
+    def detach(self):
+        """禁用插件时撤掉它注册的事件监听与分值解析能力。"""
+        self.events.detach()
+        self.manager.ui.remove_owner(self.id)
+        self.manager.ball.remove_owner(self.id)
+        self.manager.scores.remove_owner(self.id)
 
 
 class PluginRecord:
@@ -632,11 +813,54 @@ class PluginManager:
         self.plugin_dir = Path(plugin_dir) if plugin_dir else PLUGIN_DIR
         self.data = DataAPI()
         self.events = EventBus()
-        self.ui = UIBridge(app)
-        self.ball = BallBridge(ball)
+        self.scores = ScoreBridge(self)
+        self.ui = UIBridge(app, self)
+        self.ball = BallBridge(ball, self)
         self.records: list[PluginRecord] = []
         self.contexts: dict[str, PluginContext] = {}
         self._loaded = False
+
+    # ---- 启用 / 禁用 ----
+    def is_enabled(self, plugin_id) -> bool:
+        return bool(_load_enabled().get(str(plugin_id), True))
+
+    def set_enabled(self, plugin_id, enabled: bool) -> bool:
+        record = next((r for r in self.records if r.id == str(plugin_id)), None)
+        if record is None:
+            return False
+        enabled = bool(enabled)
+        if self.is_enabled(record.id) == enabled:
+            return True
+        _store_enabled(record.id, enabled)
+        if enabled:
+            self._register(record)
+        else:
+            self._unregister(record.id)
+        _log(f"插件 {record.id} 已{'启用' if enabled else '禁用'}")
+        return True
+
+    def sync_enabled_states(self):
+        """跨进程共享开关：悬浮球进程定时调用，跟上主界面的启停操作。"""
+        states = _load_enabled()
+        for record in list(self.records):
+            want = bool(states.get(record.id, True))
+            active = record.id in self.contexts
+            if want and not active:
+                self._register(record)
+            elif not want and (active or record.ok):
+                self._unregister(record.id)
+
+    def _unregister(self, plugin_id: str):
+        ctx = self.contexts.pop(plugin_id, None)
+        if ctx is not None:
+            ctx.events.detach()
+        self.ui.remove_owner(plugin_id)
+        self.ball.remove_owner(plugin_id)
+        self.scores.remove_owner(plugin_id)
+        record = next((r for r in self.records if r.id == plugin_id), None)
+        if record is not None:
+            record.ok = False
+            record.error = ""
 
     # ---- 发现 ----
     def discover(self) -> list:
@@ -711,6 +935,7 @@ class PluginManager:
     # ---- 加载（依赖排序 + 异常隔离） ----
     def load_all(self):
         if self._loaded:
+            self.sync_enabled_states()
             return self.records
         if not self.records:
             self.discover()
@@ -755,15 +980,26 @@ class PluginManager:
         return self.records
 
     def _register(self, record: PluginRecord):
+        if not self.is_enabled(record.id):
+            record.ok = False
+            record.error = ""
+            return False
+        if record.id in self.contexts:
+            return True
         ctx = PluginContext(self, record.id, record.manifest, record.module)
         try:
             record.module.register(ctx)
             record.ok = True
+            record.error = ""
             self.contexts[record.id] = ctx
             _log(f"已加载插件 {record.id} {record.manifest.get('version', '')}")
+            return True
         except Exception:
+            ctx.detach()
+            record.ok = False
             record.error = traceback.format_exc()
             _log(f"插件 {record.id} 注册失败：\n{record.error}")
+            return False
 
     # ---- 诊断 ----
     def summary(self) -> str:
@@ -773,7 +1009,10 @@ class PluginManager:
         for record in self.records:
             name = record.manifest.get("name", record.id)
             version = record.manifest.get("version", "")
-            state = "✓ 已启用" if record.ok else "✗ 未启用"
+            if not self.is_enabled(record.id):
+                state = "◌ 已禁用"
+            else:
+                state = "✓ 已启用" if record.ok else "✗ 未启用"
             lines.append(f"{state}  {name}  v{version}  ({record.id})")
             desc = record.manifest.get("description")
             if desc:
@@ -840,6 +1079,47 @@ def get_score_window_api():
 
 def plugin_summary() -> str:
     return _manager.summary() if _manager else "插件框架未初始化。"
+
+
+def plugin_infos() -> list:
+    """给主界面插件菜单用：[{id, name, version, description, enabled, ok}]。"""
+    if _manager is None:
+        return []
+    return [{
+        "id": r.id,
+        "name": r.manifest.get("name", r.id),
+        "version": r.manifest.get("version", ""),
+        "description": r.manifest.get("description", ""),
+        "enabled": _manager.is_enabled(r.id),
+        "ok": r.ok,
+        "error": r.error,
+    } for r in _manager.records]
+
+
+def is_plugin_enabled(plugin_id: str) -> bool:
+    return bool(_load_enabled().get(str(plugin_id), True))
+
+
+def set_plugin_enabled(plugin_id: str, enabled: bool) -> bool:
+    if _manager is not None:
+        return _manager.set_enabled(plugin_id, enabled)
+    return _store_enabled(plugin_id, enabled)
+
+
+def refresh_enabled_states():
+    if _manager is not None:
+        _manager.sync_enabled_states()
+
+
+def parse_score(text) -> tuple:
+    """分值解析入口：默认整数，启用相应插件后可支持小数。"""
+    if _manager is not None:
+        return _manager.scores.parse(text)
+    return _parse_int_score(text)
+
+
+def score_hint() -> str:
+    return _manager.scores.hint() if _manager is not None else ""
 
 
 def shutdown():

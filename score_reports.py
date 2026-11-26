@@ -35,7 +35,8 @@ class ScoreReportsMixin:
                     parts.append("      （暂无记录）")
                 for r in reversed(records):
                     delta = store.record_delta(r)
-                    parts.append(f"      {r.get('time', '')}    {delta:+d}    "
+                    parts.append(f"      {r.get('time', '')}    "
+                                 f"{store.fmt_delta(delta)}    "
                                  f"{r.get('reason', '')}")
             parts.append("-" * 56)
         self._text_window("积分明细（按小组 → 组员）", "\n".join(parts))
@@ -126,9 +127,9 @@ class ScoreReportsMixin:
             def add_record(r):
                 d = week_data[r.get("week", "未知")]
                 if store.record_delta(r) >= 0:
-                    d["add"] += abs(int(r.get("score", 0)))
+                    d["add"] += abs(store.as_number(r.get("score", 0)))
                 else:
-                    d["sub"] += abs(int(r.get("score", 0)))
+                    d["sub"] += abs(store.as_number(r.get("score", 0)))
 
             for _gname, _sid, _name, r in self._iter_records():
                 add_record(r)
@@ -165,14 +166,14 @@ class ScoreReportsMixin:
                         continue
                     for r in store.student_records(info):
                         if store.record_delta(r) >= 0:
-                            add += abs(int(r.get("score", 0)))
+                            add += abs(store.as_number(r.get("score", 0)))
                         else:
-                            sub += abs(int(r.get("score", 0)))
+                            sub += abs(store.as_number(r.get("score", 0)))
                 for r in store.group_own_records(group):
                     if store.record_delta(r) >= 0:
-                        add += abs(int(r.get("score", 0)))
+                        add += abs(store.as_number(r.get("score", 0)))
                     else:
-                        sub += abs(int(r.get("score", 0)))
+                        sub += abs(store.as_number(r.get("score", 0)))
                 rows.append((gname, add, sub))
             # 净得分高的排在上面，更直观
             rows.sort(key=lambda x: -(x[1] - x[2]))

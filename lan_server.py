@@ -384,10 +384,7 @@ def _hygiene_view(cls: str) -> dict:
     for rec in raw:
         if not isinstance(rec, dict):
             continue
-        try:
-            score = abs(int(rec.get("score", 0) or 0))
-        except (TypeError, ValueError):
-            score = 0
+        score = abs(store.as_number(rec.get("score", 0) or 0))
         gname = rec.get("group") or "未分组"
         reason = rec.get("reason") or "未填写"
         by_group[gname] = by_group.get(gname, 0) + score

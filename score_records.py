@@ -8,6 +8,7 @@
 """
 
 import json
+import math
 import os
 import sys
 import threading
@@ -32,6 +33,22 @@ ARCHIVE_LOG = LOG_DIR / "archive.log"
 
 NOON = dtime(12, 0)
 TIME_FMT = "%Y-%m-%d %H:%M:%S"
+
+
+def as_number(value, default=0):
+    """兼容历史整数与新小数分值；非法值按默认值处理。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(number):
+        return default
+    return int(number) if number.is_integer() else number
+
+
+def fmt_delta(value) -> str:
+    """统一分值显示：整数不带小数点，小数正常显示，正数带 + 号。"""
+    return f"{as_number(value):+g}"
 
 
 # ===================== 通用读写 =====================
@@ -111,12 +128,9 @@ def log(msg: str):
 
 
 # ===================== 积分（按人） =====================
-def record_delta(rec: dict) -> int:
+def record_delta(rec: dict):
     """单条记录对总分的贡献（加分正、扣分负）。"""
-    try:
-        score = abs(int(rec.get("score", 0) or 0))
-    except (TypeError, ValueError):
-        score = 0
+    score = abs(as_number(rec.get("score", 0) or 0))
     return -score if rec.get("operate") == "扣分" else score
 
 
@@ -180,7 +194,7 @@ def sync_group_totals(students: dict, groups: dict) -> bool:
             if not isinstance(group, dict):
                 continue
             total = group_total(group, stu)
-            if int(group.get("total_score", 0)) != total:
+            if as_number(group.get("total_score", 0)) != total:
                 group["total_score"] = total
                 changed = True
     return changed
@@ -218,13 +232,13 @@ def migrate_group_records(students: dict, groups: dict) -> bool:
 
 
 def add_point_records(students: dict, groups: dict, cls: str,
-                      sids: list, reason: str, delta: int) -> int:
+                      sids: list, reason: str, delta) -> int:
     """按人写入加减分记录，返回实际写入人数。"""
     stu = students.setdefault(cls, {})
     now = time.strftime(TIME_FMT)
     week = time.strftime("%G-W%V")
     mode = "加分" if delta > 0 else "扣分"
-    score = abs(int(delta))
+    score = abs(as_number(delta))
     count = 0
     for sid in sids:
         info = stu.get(sid)
@@ -241,7 +255,7 @@ def add_point_records(students: dict, groups: dict, cls: str,
     if count:
         sync_group_totals(students, groups)
         payload = {"cls": cls, "sids": list(sids),
-                   "delta": int(delta), "reason": reason}
+                   "delta": delta, "reason": reason}
         # 旧事件总线（plugin_events）与新插件框架各发一份，两边插件都能收到
         try:
             import plugin_events
@@ -258,14 +272,14 @@ def add_point_records(students: dict, groups: dict, cls: str,
 
 
 def add_group_point_records(groups: dict, students: dict, cls: str,
-                            gnames: list, reason: str, delta: int) -> int:
+                            gnames: list, reason: str, delta) -> int:
     """把加减分直接记在小组名下（不记到个人），返回实际写入的小组数。"""
     class_groups = groups.setdefault(cls, {})
     stu = students.get(cls, {})
     now = time.strftime(TIME_FMT)
     week = time.strftime("%G-W%V")
     mode = "加分" if delta > 0 else "扣分"
-    score = abs(int(delta))
+    score = abs(as_number(delta))
     count = 0
     for gname in gnames:
         group = class_groups.get(gname)
@@ -282,7 +296,7 @@ def add_group_point_records(groups: dict, students: dict, cls: str,
     if count:
         sync_group_totals(students, groups)
         payload = {"cls": cls, "sids": [], "groups": list(gnames),
-                   "scope": "group", "delta": int(delta), "reason": reason}
+                   "scope": "group", "delta": delta, "reason": reason}
         try:
             import plugin_events
             plugin_events.emit("points_added", **payload)
@@ -553,20 +567,18 @@ def _update_total_sheet(wb, period_text: str, kind: str,
         typ, cls, key, _name, _group, _value, total = (
             row[2], row[3], row[4], row[5], row[6], row[7], row[8])
         if typ and cls and key:
-            try:
-                cumulative[(str(typ), str(cls), str(key))] = int(total or 0)
-            except (TypeError, ValueError):
-                cumulative[(str(typ), str(cls), str(key))] = 0
+            cumulative[(str(typ), str(cls), str(key))] = as_number(total or 0)
 
     now_text = datetime.now().strftime(TIME_FMT)
 
     def append(typ, cls, key, name, group, value):
         k = (typ, cls, str(key))
         prev = cumulative.get(k, 0)
-        new_total = prev + int(value)
+        amount = as_number(value)
+        new_total = prev + amount
         cumulative[k] = new_total
         ws.append([now_text, period_text, typ, cls, str(key), name, group,
-                   int(value), new_total])
+                   amount, new_total])
 
     for item in person_rows:
         if not item["value"]:

@@ -13,6 +13,7 @@ from tkinter import messagebox, ttk
 
 import plugin_api as plug
 import schedule_core as schedule
+from score_records import fmt_delta
 from ui import (
     BG_MAIN, BG_PANEL, BG_CELL, BG_CELL_ALT, BG_IN_CLASS,
     FG_TEXT, FG_DIM, FG_ACCENT, FG_WARN, FG_DANGER, FG_OK,
@@ -255,7 +256,7 @@ class StudentPortalWindow:
         cards.pack(fill=tk.X, padx=18, pady=(12, 6))
         for label, value, color in (
                 ("当前积分", str(total), FG_ACCENT),
-                ("本周净得分", f"{weekly:+d}", FG_OK if weekly >= 0 else FG_DANGER),
+                ("本周净得分", fmt_delta(weekly), FG_OK if weekly >= 0 else FG_DANGER),
                 ("班级排名", f"第 {rank} 名" if rank else "—", FG_WARN),
                 ("积分记录", f"{count} 条", FG_TEXT)):
             card = tk.Frame(cards, bg=BG_CELL)
@@ -288,7 +289,7 @@ class StudentPortalWindow:
             delta = self.data.delta(rec)
             row = tk.Frame(parent, bg=BG_CELL)
             row.pack(fill=tk.X, padx=22, pady=2)
-            tk.Label(row, text=f"{delta:+d}", font=(FONT, 13, "bold"), bg=BG_CELL,
+            tk.Label(row, text=fmt_delta(delta), font=(FONT, 13, "bold"), bg=BG_CELL,
                      fg=FG_OK if delta >= 0 else FG_DANGER, width=5)\
                 .pack(side=tk.LEFT, padx=6, pady=6)
             tk.Label(row, text=rec.get("reason", ""), font=(FONT, 10), bg=BG_CELL,
@@ -383,7 +384,7 @@ class StudentPortalWindow:
         for rec in reversed(records):
             delta = self.data.delta(rec)
             tree.insert("", tk.END, values=(
-                rec.get("time", ""), f"{delta:+d}", rec.get("reason", ""),
+                rec.get("time", ""), fmt_delta(delta), rec.get("reason", ""),
                 self.data.record_week(rec)))
 
     # ---------- 班级排行 ----------
@@ -488,7 +489,7 @@ class StudentPortalWindow:
                          fg=color).pack(side=tk.LEFT)
                 tk.Label(line, text=str(name), font=(FONT, 10, "bold"), bg=BG_CELL,
                          fg=FG_TEXT).pack(side=tk.LEFT, padx=6)
-                tk.Label(line, text=f"{value:+d} 分", font=(FONT, 10, "bold"),
+                tk.Label(line, text=f"{fmt_delta(value)} 分", font=(FONT, 10, "bold"),
                          bg=BG_CELL, fg=FG_OK if value >= 0 else FG_DANGER)\
                     .pack(side=tk.RIGHT)
 

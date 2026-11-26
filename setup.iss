@@ -3,7 +3,7 @@
 ; 生成 Setup.exe 安装程序
 ; ============================================================
 #define MyAppName "课程表"
-#define MyAppVersion "2.2.7"
+#define MyAppVersion "2.3.0"
 #define MyAppPublisher "七年级10班"
 #define MyAppExeName "ClassSchedule.exe"
 #define MyBackendName "ClassSchedule_Backend.exe"

@@ -4,6 +4,7 @@ import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
+import plugin_api as plug
 import score_records as store
 from score_data import CHECK_BG, FONT, add_custom_reason, custom_reasons, reason_categories
 from ui import BG_CELL, BG_MAIN, BG_PANEL, FG_ACCENT, FG_DANGER, FG_DIM, FG_OK, FG_TEXT
@@ -180,9 +181,16 @@ class ScoreScoringMixin:
         score_entry = self._entry(form, width=10)
         score_entry.grid(row=2, column=1, sticky="w", pady=5)
 
-        tk.Label(bottom, text="分值填正数加分、负数扣分（如 3 或 -2）；理由可直接输入新内容，会保存为预设",
-                 font=(FONT, 8), bg=BG_MAIN, fg=FG_DIM,
-                 wraplength=480, justify=tk.CENTER).pack()
+        tip_label = tk.Label(bottom, text="", font=(FONT, 8), bg=BG_MAIN,
+                             fg=FG_DIM, wraplength=480, justify=tk.CENTER)
+        tip_label.pack()
+
+        def refresh_tip():
+            extra = plug.score_hint()
+            tip_label.config(text="分值填正数加分、负数扣分（如 3 或 -2）；"
+                                  "理由可直接输入新内容，会保存为预设"
+                                  + (f"；{extra}" if extra else ""))
+        refresh_tip()
         score_entry.focus_set()
 
         err = tk.Label(bottom, text="", font=(FONT, 9), bg=BG_MAIN, fg=FG_DANGER)
@@ -203,16 +211,16 @@ class ScoreScoringMixin:
             if not score_str:
                 err.config(text="分值不能为空")
                 return
-            try:
-                delta = int(score_str)
-            except ValueError:
-                err.config(text="分值必须是整数（正数加分，负数扣分）")
+            delta, parse_error = plug.parse_score(score_str)
+            if parse_error:
+                err.config(text=parse_error)
                 return
             if delta == 0:
                 err.config(text="分值不能为 0（正数加分，负数扣分）")
                 return
             if abs(delta) > 10 and not messagebox.askyesno(
-                    "提醒", f"分值 {delta:+d} 超过 10，确定提交？", parent=win):
+                    "提醒", f"分值 {store.fmt_delta(delta)} 超过 10，确定提交？",
+                    parent=win):
                 return
 
             mode = "加分" if delta > 0 else "扣分"
@@ -309,7 +317,7 @@ class ScoreScoringMixin:
                 tree.insert("", tk.END, iid=f"{sid}|{idx}", values=(
                     rec.get("time", ""), name if is_group else f"{sid} {name}",
                     sid.split("|", 1)[1] if is_group else gmap.get(sid, "未分组"),
-                    f"{delta:+d}", rec.get("reason", "")))
+                    store.fmt_delta(delta), rec.get("reason", "")))
             return bool(rows)
 
         def revoke():
@@ -348,7 +356,7 @@ class ScoreScoringMixin:
                     "确认撤回",
                     f"撤回 {label} 的这条记录？\n\n"
                     f"{rec.get('time', '')}  {rec.get('reason', '')}  "
-                    f"{store.record_delta(rec):+d} 分",
+                    f"{store.fmt_delta(store.record_delta(rec))} 分",
                     parent=win):
                 return
             records.pop(idx)
@@ -399,10 +407,9 @@ class ScoreScoringMixin:
         )
         if num is None:
             return
-        try:
-            new_score = int(num.strip())
-        except ValueError:
-            messagebox.showerror("错误", "请输入整数", parent=self.win)
+        new_score, parse_error = plug.parse_score(num.strip())
+        if parse_error:
+            messagebox.showerror("错误", parse_error, parent=self.win)
             return
         if not messagebox.askyesno(
                 "确认修改",

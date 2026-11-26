@@ -275,6 +275,17 @@ class FloatingBall:
             menu.grab_release()
 
     # ---------- 插件接口 ----------
+    def clear_plugin_items(self):
+        """清空插件注册的菜单/皮肤/单击动作，供插件框架按开关重建。"""
+        names = self._skin_names()
+        current = names[self._skin] if self._skin < len(names) else ""
+        self._plugin_menus = []
+        self._extra_skins = []
+        self._click_action = None
+        if current not in self._skin_names():
+            self._skin = 0
+        self.refresh_skins()
+
     def add_plugin_menu(self, label: str, callback, order: int = 100):
         self._plugin_menus.append({"label": label, "callback": callback,
                                    "order": order})

@@ -51,7 +51,7 @@ def _on_points_added(payload=None):
     cls = payload.get("cls") or payload.get("class") or ""
     sids = payload.get("sids") or []
     gnames = payload.get("groups") or []
-    delta = int(payload.get("delta") or 0)
+    delta = store.as_number(payload.get("delta") or 0)
     reason = payload.get("reason") or ""
     if payload.get("scope") == "group" or (gnames and not sids):
         store.record_group_points(cls, gnames, delta, reason)

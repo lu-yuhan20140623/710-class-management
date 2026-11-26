@@ -227,7 +227,7 @@ class GrowthArchiveWindow:
             item["sid"] = r.get("sid", "")
             item["name"] = r.get("name", item["name"])
             item["group"] = r.get("group", item["group"])
-            delta = int(r.get("delta", 0))
+            delta = sr.as_number(r.get("delta", 0))
             item["add" if delta >= 0 else "sub"] += delta
 
         ranking = sorted(totals.values(), key=lambda x: x["add"] + x["sub"], reverse=True)
@@ -240,7 +240,7 @@ class GrowthArchiveWindow:
         cats = defaultdict(lambda: [0, 0])
         for r in rows:
             item = cats[r.get("category", "其他")]
-            item[0] += int(r.get("delta", 0))
+            item[0] += sr.as_number(r.get("delta", 0))
             item[1] += 1
         self.cat_tree.delete(*self.cat_tree.get_children())
         for i, (cat, (total, count)) in enumerate(
@@ -248,15 +248,16 @@ class GrowthArchiveWindow:
             self.cat_tree.insert("", "end", values=(i, cat, total, count))
 
         self.reward_tree.delete(*self.reward_tree.get_children())
-        rewards = [r for r in rows if int(r.get("delta", 0)) > 0]
+        rewards = [r for r in rows if sr.as_number(r.get("delta", 0)) > 0]
         for r in sorted(rewards, key=lambda x: x.get("ts", ""), reverse=True)[:500]:
             self.reward_tree.insert("", "end", values=(
                 r.get("ts", ""), r.get("name", ""), r.get("group", ""),
-                f"+{int(r.get('delta', 0))}", r.get("reason", ""), r.get("category", "其他")))
+                f"+{sr.as_number(r.get('delta', 0))}", r.get("reason", ""),
+                r.get("category", "其他")))
 
         gagg = defaultdict(lambda: [0, 0, 0])
         for r in store.group_points(cls):
-            delta = int(r.get("delta", 0))
+            delta = sr.as_number(r.get("delta", 0))
             item = gagg[r.get("group", "")]
             item[0 if delta >= 0 else 1] += delta
             item[2] += 1
@@ -291,7 +292,7 @@ class GrowthArchiveWindow:
         for r in rows:
             day = (r.get("ts") or "")[:10]
             if day:
-                by_day[r.get("name", "")][day] += int(r.get("delta", 0))
+                by_day[r.get("name", "")][day] += sr.as_number(r.get("delta", 0))
         total = defaultdict(int)
         for name, days in by_day.items():
             total[name] = sum(days.values())
@@ -309,7 +310,7 @@ class GrowthArchiveWindow:
 
         cats = defaultdict(int)
         for r in rows:
-            cats[r.get("category", "其他")] += int(r.get("delta", 0))
+            cats[r.get("category", "其他")] += sr.as_number(r.get("delta", 0))
         charts.bar_chart(self.cat_canvas, sorted(cats.items(), key=lambda kv: kv[1],
                                                  reverse=True), title="班级分项得分分布")
 
@@ -343,7 +344,7 @@ class GrowthArchiveWindow:
         head.pack(fill=tk.X, padx=14, pady=10)
         tk.Label(head, text=name, bg=BG_MAIN, fg=FG_ACCENT,
                  font=(FONT, 16, "bold")).pack(side=tk.LEFT)
-        total = sum(int(r.get("delta", 0)) for r in rows)
+        total = sum(sr.as_number(r.get("delta", 0)) for r in rows)
         tk.Label(head, text=f"  学号 {sid}    累计积分 {total}    记录 {len(rows)} 条",
                  bg=BG_MAIN, fg=FG_DIM, font=(FONT, 10)).pack(side=tk.LEFT)
 
@@ -355,7 +356,7 @@ class GrowthArchiveWindow:
             tree.heading(key, text=title)
             tree.column(key, width=width, anchor="center")
         for r in sorted(rows, key=lambda x: x.get("ts", ""), reverse=True):
-            tree.insert("", "end", values=(r.get("ts", ""), int(r.get("delta", 0)),
+            tree.insert("", "end", values=(r.get("ts", ""), sr.as_number(r.get("delta", 0)),
                                            r.get("reason", ""), r.get("category", "其他"),
                                            r.get("week", "")))
         tree.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 8))

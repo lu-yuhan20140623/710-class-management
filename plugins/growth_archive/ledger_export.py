@@ -8,6 +8,8 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import score_records as sr
+
 from . import store
 
 
@@ -30,7 +32,7 @@ def _student_totals(rows: list) -> dict:
         item = totals[key]
         item["name"] = r.get("name", item["name"])
         item["group"] = r.get("group", item["group"])
-        delta = int(r.get("delta", 0))
+        delta = sr.as_number(r.get("delta", 0))
         if delta >= 0:
             item["add"] += delta
         else:
@@ -42,7 +44,7 @@ def _category_totals(rows: list) -> dict:
     """{学生: {分项: 分值}}"""
     data = defaultdict(lambda: defaultdict(int))
     for r in rows:
-        data[r.get("name", "")][r.get("category", "其他")] += int(r.get("delta", 0))
+        data[r.get("name", "")][r.get("category", "其他")] += sr.as_number(r.get("delta", 0))
     return data
 
 
@@ -68,7 +70,7 @@ def export_class(cls: str, path) -> str:
     _style_header(ws, ["时间", "周次", "学号", "姓名", "小组", "分值", "事由", "分项"])
     for r in sorted(rows, key=lambda x: x.get("ts", "")):
         ws.append([r.get("ts", ""), r.get("week", ""), r.get("sid", ""), r.get("name", ""),
-                   r.get("group", ""), int(r.get("delta", 0)), r.get("reason", ""),
+                   r.get("group", ""), sr.as_number(r.get("delta", 0)), r.get("reason", ""),
                    r.get("category", "其他")])
 
     # 3) 分项统计
@@ -109,8 +111,8 @@ def export_student(cls: str, sid: str, path) -> str:
     _style_header(ws, ["时间", "周次", "分值", "事由", "分项", "合计"])
     running = 0
     for r in sorted(rows, key=lambda x: x.get("ts", "")):
-        running += int(r.get("delta", 0))
-        ws.append([r.get("ts", ""), r.get("week", ""), int(r.get("delta", 0)),
+        running += sr.as_number(r.get("delta", 0))
+        ws.append([r.get("ts", ""), r.get("week", ""), sr.as_number(r.get("delta", 0)),
                    r.get("reason", ""), r.get("category", "其他"), running])
 
     ws = wb.create_sheet("分项汇总")

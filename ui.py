@@ -43,6 +43,7 @@ class ScheduleUI:
         self._cell_map = {}
         self._debug_win = None
         self._menu_win = None  # 单元格操作菜单窗口
+        self._plugin_vars = {}  # 插件菜单勾选状态（避免变量被回收）
 
         self._build_ui()
 
@@ -224,6 +225,9 @@ class ScheduleUI:
             .pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 3))
         self._big_button(row2, "📋 值日生任命", self._open_duty_admin)\
             .pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._plugin_button = self._big_button(btn_frame, "🧩 插件",
+                                                self._open_plugin_menu)
+        self._plugin_button.pack(fill=tk.X, pady=2)
         self._more_button = self._big_button(btn_frame, "▾ 更多功能", self._open_more_menu)
         self._more_button.pack(fill=tk.X, pady=2)
 
@@ -538,21 +542,8 @@ class ScheduleUI:
                        activebackground=BG_CELL_ALT, activeforeground=FG_TEXT,
                        bd=0, font=("Microsoft YaHei UI", 10))
         menu.add_command(label="⏱  测试倒计时窗口", command=self._toggle_overlay_manual)
-        menu.add_command(label="◉  显示悬浮球", command=self._show_floating_ball)
         menu.add_command(label="⇄  局域网连接（手机）", command=self._open_lan)
         menu.add_command(label="⚙  调试工具", command=self._open_debug_tool)
-
-        entries = []
-        try:
-            import plugin_api
-            entries = plugin_api.main_menu_items()
-        except Exception:
-            entries = []
-        if entries:
-            menu.add_separator()
-            for label, callback in entries:
-                menu.add_command(label=label,
-                                 command=lambda cb=callback: self._run_plugin_entry(cb))
         menu.add_separator()
         menu.add_command(label="ℹ  版本信息", command=self._show_version_info)
 
@@ -561,6 +552,66 @@ class ScheduleUI:
             menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
         finally:
             menu.grab_release()
+
+    def _open_plugin_menu(self):
+        """插件菜单：悬浮球入口、插件开关与插件功能入口。"""
+        menu = tk.Menu(self.root, tearoff=0, bg=BG_PANEL, fg=FG_TEXT,
+                       activebackground=BG_CELL_ALT, activeforeground=FG_TEXT,
+                       bd=0, font=("Microsoft YaHei UI", 10))
+        menu.add_command(label="◉  显示悬浮球", command=self._show_floating_ball)
+        menu.add_separator()
+
+        infos, entries = [], []
+        try:
+            import plugin_api
+            infos = plugin_api.plugin_infos()
+            entries = plugin_api.main_menu_items()
+        except Exception as exc:
+            print(f"[UI] 读取插件列表失败：{exc}")
+
+        if not infos:
+            menu.add_command(label="（未发现插件）", state="disabled")
+        for info in infos:
+            pid = info["id"]
+            var = self._plugin_vars.get(pid)
+            if var is None:
+                var = tk.BooleanVar(value=info["enabled"])
+                self._plugin_vars[pid] = var
+            else:
+                var.set(info["enabled"])
+            if not info["enabled"]:
+                state = "已禁用"
+            elif not info["ok"]:
+                state = "加载失败"
+            else:
+                state = "已启用"
+            menu.add_checkbutton(
+                label=f"{info['name']}  v{info['version']}  ·  {state}",
+                variable=var,
+                command=lambda i=pid, v=var, n=info["name"]: self._toggle_plugin(i, v, n))
+        if entries:
+            menu.add_separator()
+            for label, callback in entries:
+                menu.add_command(label=label,
+                                 command=lambda cb=callback: self._run_plugin_entry(cb))
+
+        btn = self._plugin_button
+        try:
+            menu.tk_popup(btn.winfo_rootx(), btn.winfo_rooty() + btn.winfo_height())
+        finally:
+            menu.grab_release()
+
+    def _toggle_plugin(self, plugin_id: str, var: tk.BooleanVar, name: str):
+        """即时启停插件，开关状态写入共享配置供悬浮球进程同步。"""
+        try:
+            import plugin_api
+            plugin_api.set_plugin_enabled(plugin_id, var.get())
+            action = "启用" if var.get() else "禁用"
+            self._set_status(f"插件「{name}」已{action}")
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("插件出错", str(exc), parent=self.root)
 
     def _run_plugin_entry(self, callback):
         """执行插件注册的菜单项，异常只提示不中断主程序。"""
