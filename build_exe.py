@@ -130,6 +130,7 @@ def collect_hidden_imports() -> list:
     mods |= {
         "tkinter", "tkinter.ttk", "tkinter.messagebox",
         "tkinter.simpledialog", "tkinter.filedialog",
+        "ctypes.wintypes",  # ctypes 子模块需显式声明，否则 onedir 启动导入失败
         # 归档 XLSX 用（不会自动被 PyInstaller 完整收集）
         "openpyxl", "openpyxl.workbook", "openpyxl.worksheet",
         "openpyxl.styles", "openpyxl.utils", "et_xmlfile",

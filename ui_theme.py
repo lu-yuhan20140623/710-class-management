@@ -52,8 +52,10 @@ def work_area(root):
     if os.name == "nt":
         try:
             import ctypes
-            from ctypes import wintypes
-            rect = wintypes.RECT()
+            class _RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+            rect = _RECT()
             # SPI_GETWORKAREA = 0x0030
             if ctypes.windll.user32.SystemParametersInfoW(
                     0x0030, 0, ctypes.byref(rect), 0):

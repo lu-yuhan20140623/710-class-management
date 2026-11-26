@@ -7,7 +7,12 @@ activate_all_windows() 在检测到已有实例时枚举并恢复全部属于本
 
 import ctypes
 import sys
-from ctypes import wintypes
+
+# Windows 类型别名：直接使用 ctypes 内置类型，不依赖 ctypes.wintypes 子模块
+# （部分 onedir 打包环境未收集该子模块，from ctypes import wintypes 会启动即崩溃）
+_HWND = ctypes.c_void_p
+_BOOL = ctypes.c_int
+_LPARAM = ctypes.c_ssize_t
 
 _ERROR_ALREADY_EXISTS = 183
 _handles = {}
@@ -62,11 +67,11 @@ def activate_window(title: str = "") -> bool:
     try:
         user32 = ctypes.windll.user32
         user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
-        user32.FindWindowW.restype = wintypes.HWND
-        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-        user32.IsIconic.argtypes = [wintypes.HWND]
-        user32.GetWindowTextW.argtypes = [wintypes.HWND, ctypes.c_wchar_p, ctypes.c_int]
-        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+        user32.FindWindowW.restype = _HWND
+        user32.ShowWindow.argtypes = [_HWND, ctypes.c_int]
+        user32.IsIconic.argtypes = [_HWND]
+        user32.GetWindowTextW.argtypes = [_HWND, ctypes.c_wchar_p, ctypes.c_int]
+        user32.GetWindowTextLengthW.argtypes = [_HWND]
 
         found = []
         if title:
@@ -74,7 +79,7 @@ def activate_window(title: str = "") -> bool:
             if hwnd:
                 found.append(hwnd)
         if not found:
-            WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            WNDENUMPROC = ctypes.WINFUNCTYPE(_BOOL, _HWND, _LPARAM)
 
             def _collect(hwnd, _lparam):
                 t = _window_title(hwnd)
