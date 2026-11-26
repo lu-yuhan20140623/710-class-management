@@ -172,14 +172,16 @@ def kill_ball():
 
 # ---------- 自动更新（开机自启时检查） ----------
 def _update_worker():
-    """后台检查 Gitee 是否有新版本并提前下载；失败只记日志，不打扰用户。"""
+    """开机强制检查一次，之后每 6 小时检查；提前下载，失败只记日志。"""
+    first = True
     while running:
         try:
-            ok, msg = update_checker.auto_check_background()
+            ok, msg = update_checker.auto_check_background(force=first)
             if ok:
                 log(f"更新：{msg}")
         except Exception as e:
             log(f"更新检查异常: {e}")
+        first = False
         # 每 6 小时检查一次（update_checker 内部还有节流）
         time.sleep(6 * 3600)
 

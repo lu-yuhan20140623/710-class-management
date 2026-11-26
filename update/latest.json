@@ -1,9 +1,9 @@
 {
-  "version": "2.3.0",
+  "version": "2.3.1",
   "published_at": "2026-11-26",
-  "previous_version": "2.2.7",
+  "previous_version": "2.3.0",
   "exe_changed": true,
-  "notes": "插件系统升级：新增插件作用域 API（UI/悬浮球/积分/事件）、插件开关持久化与插件管理入口；新增分值解析覆盖机制与「小数积分」插件（支持最多两位小数，可随时启停）；同步更新成长档案、学生主页、积分中心等内置插件与悬浮球、UI 集成。",
+  "notes": "修复自动更新未触发：改为每次开机强制检查一次、之后每 6 小时检查、启动 GUI 界面时也强制检查并后台下载；清单获取失败不再消耗 6 小时检查窗口，待安装更新的轮询加快到 20 秒。",
   "site": {
     "android_version": "1.2.0",
     "apk": "downloads/ClassSchedule_Android_1.2.0.apk",
@@ -12,16 +12,16 @@
     "setup_size": "17 MB",
     "hero_badge": "支持加密云端同步",
     "term": "2026–2027 第一学期",
-    "versions": ["2.3.0", "2.2.7", "2.2.6", "2.2.5", "2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0", "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"]
+    "versions": ["2.3.1", "2.3.0", "2.2.7", "2.2.6", "2.2.5", "2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0", "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"]
   },
-  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.3.0",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.3.1",
   "renew": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.0/renew_2.2.7_to_2.3.0.zip",
-    "sha256": "0bb288db2fe50012dcb07aadcd0719f7bb782fa503f348b58c115d7b5944a904"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.1/renew_2.3.0_to_2.3.1.zip",
+    "sha256": "8f59b064b90d424eec5796a01a266e4f3c1a89ed022fd274e011b6e8e81b24de"
   },
   "setup": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.0/ClassSchedule_Setup_2.3.0.exe",
-    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.3.0/ClassSchedule_Setup_2.3.0.exe",
-    "sha256": "cc05877edbd522565d5233855d275645cc4e90d9bdf465139a3eff7b50cea4be"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.1/ClassSchedule_Setup_2.3.1.exe",
+    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.3.1/ClassSchedule_Setup_2.3.1.exe",
+    "sha256": "ddb4c1b340420e5e639772466f312d05d5c26588b2fd3f98f87f1a31a32b6886"
   }
 }

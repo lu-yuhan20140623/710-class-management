@@ -220,6 +220,19 @@ def main():
             update_checker.clear_pending()
             update_error = msg
 
+        # GUI 启动时也强制检查一次：后台线程检查+下载，不阻塞界面；
+        # 下载好后由 _update_tick 自动应用（或下次启动应用）。
+        def _gui_update_check():
+            try:
+                ok, msg = update_checker.check_and_prepare(force=True)
+                if ok:
+                    print(f"[课程表] GUI 更新检查：{msg}")
+            except Exception as e:
+                print(f"[课程表] GUI 更新检查异常：{e}")
+
+        threading.Thread(target=_gui_update_check, name="gui-update-check",
+                         daemon=True).start()
+
     # 3. 身份选择（教师端 / 学生端 / 值日生端 / 查看信息）
     root.withdraw()
     import entry
@@ -348,9 +361,9 @@ def main():
             update_checker.clear_pending()
             _show_update_error(root, msg, update_checker.manual_download_hint(p))
             return
-        root.after(60_000, _update_tick)
+        root.after(20_000, _update_tick)
 
-    root.after(60_000, _update_tick)
+    root.after(20_000, _update_tick)
 
     print("[课程表] 已启动 · 七年级10班 · 2026-2027 第一学期")
     try:

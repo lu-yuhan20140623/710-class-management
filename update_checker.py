@@ -140,14 +140,20 @@ def fetch_manifest() -> dict | None:
 
 
 def check(force: bool = False) -> dict | None:
-    """有新版本时返回清单，否则 None。默认 6 小时内不重复请求。"""
+    """有新版本时返回清单，否则 None。默认 6 小时内不重复请求。
+
+    force=True 用于开机/GUI 启动等明确时刻，跳过节流；获取清单成功才写入
+    last_check，失败不消耗 6 小时窗口。
+    """
     now = time.time()
     st = _state()
     if not force and now - float(st.get("last_check", 0)) < CHECK_INTERVAL:
         return None
     manifest = fetch_manifest()
+    if manifest is None:
+        return None
     _save_state(last_check=now)
-    if manifest is None or not is_newer(manifest["version"]):
+    if not is_newer(manifest["version"]):
         return None
     return manifest
 
@@ -230,18 +236,23 @@ def prepare(manifest: dict) -> tuple:
     return True, f"已下载 {version}（{kind}）"
 
 
-def auto_check_background() -> tuple:
-    """后台（开机自启的 backend）调用：检查 + 下载，失败静默。"""
+def check_and_prepare(force: bool = False) -> tuple:
+    """检查 + 下载的统一入口；失败静默，不打扰用户。"""
     try:
         pending = load_pending()
         if pending:
             return True, f"已有待安装更新 {pending.get('version')}"
-        manifest = check()
+        manifest = check(force=force)
         if not manifest:
             return False, "暂无更新"
         return prepare(manifest)
     except Exception as exc:
         return False, f"检查更新异常：{exc}"
+
+
+def auto_check_background(force: bool = False) -> tuple:
+    """后台（开机自启的 backend）调用：检查 + 下载，失败静默。"""
+    return check_and_prepare(force=force)
 
 
 # ---------------- 待安装 ----------------
