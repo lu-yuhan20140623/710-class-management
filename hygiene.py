@@ -317,8 +317,10 @@ def _build_report(parent, title: str, subtitle: str, items: list,
         win.geometry(geometry)
     else:
         win.attributes("-fullscreen", True)
-    win.attributes("-topmost", True)
+    # 不设 -topmost：置顶窗口在 Win+D「显示桌面」后层级会错乱，
+    # 再次启动时报表可能盖住主界面或无法正常恢复。
     win.bind("<Escape>", lambda e: win.destroy())
+    win.protocol("WM_DELETE_WINDOW", win.destroy)
 
     compact = bool(geometry)
     padx = 24 if compact else 60
@@ -347,6 +349,12 @@ def _build_report(parent, title: str, subtitle: str, items: list,
     win.bind("<MouseWheel>",
              lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
 
+    if not items:
+        empty_text = ("本周暂无卫生扣分记录，继续保持！" if kind == "hygiene"
+                      else "本周暂无积分记录，快去给小组加分吧！")
+        tk.Label(inner, text=empty_text, font=(FONT, row_size), bg=REPORT_BG,
+                 fg=FG_DIM, wraplength=560, justify=tk.CENTER).pack(pady=60)
+
     multi_class = len({item[0] for item in items}) > 1
     for cls, gname, total, count in items:
         row = tk.Frame(inner, bg=REPORT_ROW, cursor="hand2")
@@ -371,7 +379,8 @@ def _build_report(parent, title: str, subtitle: str, items: list,
 
     foot = tk.Frame(win, bg=REPORT_BG)
     foot.pack(fill=tk.X, padx=padx, pady=(6, 22 if compact else 28))
-    tk.Label(foot, text="点击小组可查看组员明细 · 按 Esc 关闭", font=(FONT, 10),
+    hint = "按 Esc 关闭" if not items else "点击小组可查看组员明细 · 按 Esc 关闭"
+    tk.Label(foot, text=hint, font=(FONT, 10),
              bg=REPORT_BG, fg=FG_DIM).pack(side=tk.LEFT)
     tk.Button(foot, text="关闭", command=win.destroy,
               bg=BG_IN_CLASS, fg=FG_TEXT, activebackground="#4b7b4b",
@@ -392,10 +401,8 @@ def _build_report(parent, title: str, subtitle: str, items: list,
 
 
 def show_daily_report(parent, day: str | None = None, geometry: str | None = None):
-    """展示卫生扣分（按小组）；没有记录时返回 None。"""
+    """展示卫生扣分（按小组）；无记录时仍弹窗并给出说明。"""
     items = _report_items(day)
-    if not items:
-        return None
     total = sum(item[2] for item in items)
     count = sum(item[3] for item in items)
     if day:
@@ -403,32 +410,34 @@ def show_daily_report(parent, day: str | None = None, geometry: str | None = Non
             day_text = date.fromisoformat(day).strftime("%m月%d日")
         except ValueError:
             day_text = day
-        subtitle = f"{day_text} · 共 {count} 条 · 合计 -{total} 分"
+        subtitle = (f"{day_text} · 暂无扣分记录" if not items
+                    else f"{day_text} · 共 {count} 条 · 合计 -{total} 分")
     else:
         subtitle = (f"截至 {datetime.now().strftime('%m-%d %H:%M')} · "
-                    f"共 {count} 条 · 合计 -{total} 分")
+                    + ("暂无扣分记录" if not items
+                       else f"共 {count} 条 · 合计 -{total} 分"))
     return _build_report(parent, "🧹 卫生扣分", subtitle, items, "hygiene", geometry)
 
 
 def show_points_report(parent, geometry: str | None = None):
-    """周一上午展示上周积分（按小组）；没有积分记录时返回 None。"""
+    """周一开机展示上周积分（按小组）；无记录时仍弹窗并给出说明。"""
     students = store.load_students()
     groups = store.load_groups()
-    if not store.point_record_count(students):
-        return None
     items = []
     for cls in list(dict.fromkeys(list(groups) + list(students))):
         for gname, count, total in store.points_group_rows(students, groups, cls):
             items.append((cls, gname, total, count))
-    if not items:
-        return None
     items.sort(key=lambda item: -item[2])
-    subtitle = "按小组 · 每周一中午 12:00 重置"
+    subtitle = ("按小组 · 暂无积分记录" if not items
+                else "按小组 · 每周一中午 12:00 重置")
     return _build_report(parent, "⭐ 小组积分", subtitle, items, "points", geometry)
 
 
 def maybe_show_first_boot_report(parent) -> None:
-    """每天第一次启动时展示：卫生每天一次；周一上午积分与卫生一左一右。"""
+    """每天第一次开机展示卫生统计；周一开机同时展示上周积分，两者并排。
+
+    没有数据时也会弹窗，并在报表里写明原因，避免用户以为没触发。
+    """
     today = date.today().strftime("%Y-%m-%d")
     try:
         state = _load_json(BOOT_STATE, {})
@@ -441,22 +450,16 @@ def maybe_show_first_boot_report(parent) -> None:
     except OSError:
         pass
 
-    now = datetime.now()
-    monday_morning = now.weekday() == 0 and now.hour < 12
-    if monday_morning:
-        points_ready = bool(store.point_record_count(store.load_students()))
-        hygiene_ready = bool(_report_items())
-        if points_ready and hygiene_ready:
-            sw = parent.winfo_screenwidth()
-            sh = parent.winfo_screenheight()
-            half = sw // 2
-            show_points_report(parent, geometry=f"{half}x{sh}+0+0")
-            show_daily_report(parent, geometry=f"{sw - half}x{sh}+{half}+0")
-            return
-        if points_ready:
-            show_points_report(parent)
-            return
-    show_daily_report(parent)
+    if datetime.now().weekday() == 0:
+        # 周一：积分统计（左）+ 卫生统计（右）并排
+        sw = parent.winfo_screenwidth()
+        sh = parent.winfo_screenheight()
+        half = sw // 2
+        show_points_report(parent, geometry=f"{half}x{sh}+0+0")
+        show_daily_report(parent, geometry=f"{sw - half}x{sh}+{half}+0")
+    else:
+        # 其他日子：每天一次卫生统计
+        show_daily_report(parent)
 
 
 # ===================== 卫生管理窗口 =====================

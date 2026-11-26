@@ -1,13 +1,19 @@
 """单实例守卫：用 Windows 命名互斥体阻止同一角色启动多个进程。
 
 互斥体句柄保存在模块级字典里，进程存活期间一直持有，进程退出后由系统释放。
+activate_all_windows() 在检测到已有实例时枚举并恢复全部属于本程序的顶层窗口，
+避免「显示桌面」后只恢复一个窗口、其余报表/统计图仍是最小化状态。
 """
 
 import ctypes
 import sys
+from ctypes import wintypes
 
 _ERROR_ALREADY_EXISTS = 183
 _handles = {}
+
+# 本程序所有窗口标题都含这些关键字（主界面 / 身份选择 / 报表 / 统计图 / 积分等）
+_WINDOW_KEYWORDS = ("课程表", "积分", "卫生", "统计图", "身份")
 
 
 def _kernel32():
@@ -36,21 +42,67 @@ def acquire(role: str) -> bool:
         return True
 
 
-def activate_window(title: str) -> bool:
-    """把已存在的主窗口恢复到前台。"""
+def _window_title(hwnd) -> str:
+    n = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+    if not n:
+        return ""
+    buf = ctypes.create_unicode_buffer(n + 1)
+    ctypes.windll.user32.GetWindowTextW(hwnd, buf, n + 1)
+    return buf.value
+
+
+def activate_window(title: str = "") -> bool:
+    """恢复并激活已有实例的顶层窗口。
+
+    优先按给定标题精确查找；找不到时枚举所有顶层窗口，恢复标题包含程序关键字
+    的窗口（主界面、报表、统计图、积分窗口等），解决显示桌面后只恢复一个的问题。
+    """
     if not sys.platform.startswith("win"):
         return False
     try:
         user32 = ctypes.windll.user32
-        user32.FindWindowW.restype = ctypes.c_void_p
         user32.FindWindowW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
-        user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
-        hwnd = user32.FindWindowW(None, title)
-        if not hwnd:
+        user32.FindWindowW.restype = wintypes.HWND
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.GetWindowTextW.argtypes = [wintypes.HWND, ctypes.c_wchar_p, ctypes.c_int]
+        user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+
+        found = []
+        if title:
+            hwnd = user32.FindWindowW(None, title)
+            if hwnd:
+                found.append(hwnd)
+        if not found:
+            WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+            def _collect(hwnd, _lparam):
+                t = _window_title(hwnd)
+                if t and any(k in t for k in _WINDOW_KEYWORDS):
+                    found.append(hwnd)
+                return True
+
+            user32.EnumWindows(WNDENUMPROC(_collect), 0)
+
+        if not found:
             return False
-        user32.ShowWindow(hwnd, 9)      # SW_RESTORE
-        user32.SetForegroundWindow(hwnd)
+        restored = False
+        for hwnd in found:
+            if user32.IsIconic(hwnd):                 # 最小化才恢复，避免把正常窗口又置前
+                user32.ShowWindow(hwnd, 9)            # SW_RESTORE
+                restored = True
+            else:
+                user32.ShowWindow(hwnd, 5)            # SW_SHOW
+        if found:
+            try:
+                user32.SetForegroundWindow(found[0])
+            except Exception:
+                pass
         return True
     except Exception:
         return False
+
+
+def activate_all_windows() -> bool:
+    """兼容旧调用：恢复本程序全部顶层窗口。"""
+    return activate_window("")

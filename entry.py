@@ -89,6 +89,15 @@ class _Dialog:
         # 不设 transient：Windows 下被拥有的窗口无法最大化
         _maximize(self.win, int((width + 60) * k), int((height + 60) * k))
         self.win.grab_set()
+
+        def _close():
+            try:
+                self.win.grab_release()
+            except Exception:
+                pass
+            self.win.destroy()
+
+        self.win.protocol("WM_DELETE_WINDOW", _close)
         holder = tk.Frame(self.win, bg=BG_MAIN)
         holder.pack(fill=tk.BOTH, expand=True)
         # 窗口最大化后表单仍保持居中、固定宽度，避免输入框被拉得过宽
@@ -585,12 +594,20 @@ class EntryWindow:
 
         self.win.wait_window()
 
+    def _release(self):
+        try:
+            self.win.grab_release()
+        except Exception:
+            pass
+
     def _finish(self, mode, payload=None):
         self.mode, self.payload = mode, payload
+        self._release()
         self.win.destroy()
 
     def _cancel(self):
         self.mode = None
+        self._release()
         self.win.destroy()
 
     def _teacher(self):

@@ -1,9 +1,9 @@
 {
-  "version": "2.3.1",
+  "version": "2.3.2",
   "published_at": "2026-11-26",
-  "previous_version": "2.3.0",
+  "previous_version": "2.3.1",
   "exe_changed": true,
-  "notes": "修复自动更新未触发：改为每次开机强制检查一次、之后每 6 小时检查、启动 GUI 界面时也强制检查并后台下载；清单获取失败不再消耗 6 小时检查窗口，待安装更新的轮询加快到 20 秒。",
+  "notes": "修复显示桌面后双重页面渲染失败、必须右键才能打开、主界面突然跳到统计图或不响应等问题；开机报表改为卫生统计每天展示、积分统计每周一展示，周一两者并排，无数据时给出说明。",
   "site": {
     "android_version": "1.2.0",
     "apk": "downloads/ClassSchedule_Android_1.2.0.apk",
@@ -12,16 +12,16 @@
     "setup_size": "17 MB",
     "hero_badge": "支持加密云端同步",
     "term": "2026–2027 第一学期",
-    "versions": ["2.3.1", "2.3.0", "2.2.7", "2.2.6", "2.2.5", "2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0", "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"]
+    "versions": ["2.3.2", "2.3.1", "2.3.0", "2.2.7", "2.2.6", "2.2.5", "2.2.4", "2.2.3", "2.2.2", "2.2.0", "2.1.1", "2.1.0", "2.0.1", "2.0.0", "1.8.2", "1.8.1", "1.8.0", "1.7.0", "1.6.0", "1.5.0", "1.2.0", "更早"]
   },
-  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.3.1",
+  "release_url": "https://gitee.com/lu-yuhan20140623/710/releases/tag/v2.3.2",
   "renew": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.1/renew_2.3.0_to_2.3.1.zip",
-    "sha256": "8f59b064b90d424eec5796a01a266e4f3c1a89ed022fd274e011b6e8e81b24de"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.2/renew_2.3.1_to_2.3.2.zip",
+    "sha256": "a32419da284a18f008ad931eb43ca8080915bb26619b594f1f938933923dd5da"
   },
   "setup": {
-    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.1/ClassSchedule_Setup_2.3.1.exe",
-    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.3.1/ClassSchedule_Setup_2.3.1.exe",
-    "sha256": "ddb4c1b340420e5e639772466f312d05d5c26588b2fd3f98f87f1a31a32b6886"
+    "url": "https://gitee.com/lu-yuhan20140623/710/releases/download/v2.3.2/ClassSchedule_Setup_2.3.2.exe",
+    "fallback_url": "https://github.com/lu-yuhan20140623/710-class-management/releases/download/v2.3.2/ClassSchedule_Setup_2.3.2.exe",
+    "sha256": "2a747c29e81b0db9b2798ad181289860632a0c0822ca9daf401a859b427fa13d"
   }
 }
