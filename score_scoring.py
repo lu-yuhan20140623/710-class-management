@@ -273,7 +273,7 @@ class ScoreScoringMixin:
         win = self._dialog("撤回积分记录", 760, 560)
         tk.Label(win, text="撤回积分记录", font=(FONT, 14, "bold"),
                  bg=BG_MAIN, fg=FG_ACCENT).pack(pady=(14, 2))
-        tk.Label(win, text="积分记在个人名下；撤回后该学生积分立即回退",
+        tk.Label(win, text="个人与小组积分均可撤回；撤回后对应积分立即回退",
                  font=(FONT, 9), bg=BG_MAIN, fg=FG_DIM).pack()
 
         body = tk.Frame(win, bg=BG_MAIN)
@@ -298,12 +298,17 @@ class ScoreScoringMixin:
                 for idx, rec in enumerate(store.student_records(info)):
                     if isinstance(rec, dict):
                         rows.append((sid, info.get("name", ""), idx, rec))
+            for gname, group in self._groups().items():
+                for idx, rec in enumerate(group.get("group_records", [])):
+                    if isinstance(rec, dict):
+                        rows.append((f"GROUP|{gname}", gname, idx, rec))
             rows.sort(key=lambda item: item[3].get("time", ""), reverse=True)
             for sid, name, idx, rec in rows:
                 delta = store.record_delta(rec)
+                is_group = sid.startswith("GROUP|")
                 tree.insert("", tk.END, iid=f"{sid}|{idx}", values=(
-                    rec.get("time", ""), f"{sid} {name}",
-                    gmap.get(sid, "未分组"),
+                    rec.get("time", ""), name if is_group else f"{sid} {name}",
+                    sid.split("|", 1)[1] if is_group else gmap.get(sid, "未分组"),
                     f"{delta:+d}", rec.get("reason", "")))
             return bool(rows)
 
@@ -313,33 +318,51 @@ class ScoreScoringMixin:
                 messagebox.showinfo("提示", "请先选择一条记录", parent=win)
                 return
             sid, idx_text = sel[0].rsplit("|", 1)
-            info = stu.get(sid)
-            if not info:
-                return
-            records = store.student_records(info)
             try:
                 idx = int(idx_text)
-                rec = records[idx]
-            except (ValueError, IndexError):
+            except ValueError:
                 return
+            is_group = sid.startswith("GROUP|")
+            if is_group:
+                gname = sid.split("|", 1)[1]
+                group = self._groups().get(gname)
+                if not group:
+                    return
+                records = group.get("group_records", [])
+                try:
+                    rec = records[idx]
+                except IndexError:
+                    return
+                label = f"小组 {gname}"
+            else:
+                info = stu.get(sid)
+                if not info:
+                    return
+                records = store.student_records(info)
+                try:
+                    rec = records[idx]
+                except IndexError:
+                    return
+                label = f"{sid} {info.get('name', '')}"
             if not messagebox.askyesno(
                     "确认撤回",
-                    f"撤回 {sid} {info.get('name', '')} 的这条记录？\n\n"
+                    f"撤回 {label} 的这条记录？\n\n"
                     f"{rec.get('time', '')}  {rec.get('reason', '')}  "
                     f"{store.record_delta(rec):+d} 分",
                     parent=win):
                 return
             records.pop(idx)
-            info["total_score"] = store.student_total(info)
+            if not is_group:
+                info["total_score"] = store.student_total(info)
             store.sync_group_totals(self.all_students, self.group_data)
             self._save_all()
             self._log_ops([f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {self.current_class} | "
-                           f"{sid} {info.get('name', '')} | 撤回 {rec.get('reason', '')} | "
+                           f"{label} | 撤回 {rec.get('reason', '')} | "
                            f"原记录 {rec.get('time', '')}"])
             self._refresh_scores()
             if not fill():
                 win.destroy()
-            self._set_status(f"已撤回 {sid} {info.get('name', '')} 的积分记录", FG_OK)
+            self._set_status(f"已撤回 {label} 的积分记录", FG_OK)
 
         if not fill():
             win.destroy()

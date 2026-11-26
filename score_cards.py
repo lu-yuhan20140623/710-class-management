@@ -228,7 +228,13 @@ class ScoreCardsMixin:
             return
 
         stu = self.all_students.get(self.current_class, {})
-        for gname, group in groups.items():
+        ordered = list(groups.items())
+        if self.sort_mode.startswith("score"):
+            ordered.sort(key=lambda kv: store.group_total(kv[1], stu),
+                         reverse=self.sort_mode.endswith("desc"))
+        elif self.sort_mode == "sid_desc":
+            ordered.reverse()
+        for gname, group in ordered:
             members = [s for s in group.get("members", []) if s in stu]
             leader = group.get("leader", "")
             leader_name = stu[leader]["name"] if leader in stu else "未指定"
